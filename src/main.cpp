@@ -15,70 +15,27 @@
 #include <Wire.h>
 #endif
 
-int count = 0;
-int countDiscover = 0;
-int interval = 2000;           // interval between sends
-
-const int dis = 1;
-const int off = 2;
-const int req = 3;
-const int ack = 4;
-const int mode;
-
-mode = dis;
-
 const int csPin = 18;          // LoRa radio chip select
 const int resetPin = 23;       // LoRa radio reset
 const int irqPin = 26;         // change for your board; must be a hardware interrupt pin
 
-String outgoing;               // outgoing message
-String message;
-String message2;
-byte sender2;
-byte recipient2;
-byte msgCount = 0;             // count of outgoing messages
-byte localAddress = 0xAA;      // address of this device
-byte destination = 0xFF;       // destination to send to
+String outgoing;              // outgoing message
+String mode;
 
-char buf_la[4];
-char buf_da[4];
-char buf_mo[4];
-char buf_ms[4];
+char buf_sm[12];
+char buf_rm[12];
 
-bool clk_state;
-bool last_clk_state;
-
-unsigned long lastDisplayTime = 0;
-unsigned long lastTaktTime1 = 0;
-unsigned long lastTaktTime2 = 0;
-unsigned long lastDiscoverTime = 0;        // last packed send time
+byte msgCount = 0;            // count of outgoing messages
+byte localAddress = 0xAA;     // address of this device
+byte destination = 0xBB;      // destination to send to
+long lastDiscoverTime = 0;    // last send time
+long lastOfferTime = 0;    // last send time
+int interval = 3000;          // interval between sends
+int counterOffer = 0;
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ 22, /* data=*/ 21);   // ESP32 Thing, HW I2C with pin remapping
 
 #define LED_PIN_INTERNAL    25
-
-//////////////////////////////////////////////////////////////////////
-
-void printDisplay(byte la, byte da, int mo, String ms) {
-
-  sprintf(buf_la, "%c", la);
-  sprintf(buf_da, "%c", da);
-  sprintf(buf_mo, "%i", mo);
-  sprintf(buf_ms, "%s", ms);
-
-  u8g2.clearBuffer();					                    // clear the internal memory
-  u8g2.setFont(u8g2_font_6x13_tf);	              // choose a suitable font
-  u8g2.drawStr(0,10,"tallyWAN_transmitter");	    // write something to the internal memory
-  u8g2.drawStr(0,30,"LA:");
-  u8g2.drawStr(30,30,buf_la);
-  u8g2.drawStr(60,30,"DA:");
-  u8g2.drawStr(90,30,buf_da);
-  u8g2.drawStr(0,60,"MODE:");
-  u8g2.drawStr(30,60,buf_mo);
-  u8g2.drawStr(0,90,"MES:");
-  u8g2.drawStr(30,90,buf_ms);
-  u8g2.sendBuffer();				                    	// transfer internal memory to the display
-}
 
 //////////////////////////////////////////////////////////////////////
 
@@ -95,11 +52,11 @@ void sendMessage(String outgoing) {
 
 //////////////////////////////////////////////////////////////////////
 
-void onReceive(int packetSize) {
-  if (packetSize == 0) return;          // if there's no packet, return
+String onReceive(int packetSize) {
+  if (packetSize == 0) return "";          // if there's no packet, return
 
   // read packet header bytes:
-  byte recipient = LoRa.read();         // recipient address
+  int recipient = LoRa.read();          // recipient address
   byte sender = LoRa.read();            // sender address
   byte incomingMsgId = LoRa.read();     // incoming msg ID
   byte incomingLength = LoRa.read();    // incoming msg length
@@ -112,13 +69,13 @@ void onReceive(int packetSize) {
 
   if (incomingLength != incoming.length()) {   // check length for error
     Serial.println("error: message length does not match length");
-    return;                             // skip rest of function
+    return "";                             // skip rest of function
   }
 
   // if the recipient isn't this device or broadcast,
   if (recipient != localAddress && recipient != 0xFF) {
     Serial.println("This message is not for me.");
-    return;                             // skip rest of function
+    return "";                             // skip rest of function
   }
 
   // if message is for this device, or broadcast, print details:
@@ -131,27 +88,40 @@ void onReceive(int packetSize) {
   Serial.println("Snr: " + String(LoRa.packetSnr()));
   Serial.println();
 
-  message2 = incoming;
-  sender2 = sender;
-  recipient2 = recipient;
-  
+  return incoming;
+
+}
+
+//////////////////////////////////////////////////////////////////////
+
+void printDisplay(String sm, String rm) {
+
+  sprintf(buf_sm, "%s", sm);
+  sprintf(buf_rm, "%s", rm);
+
+  u8g2.clearBuffer();					                    // clear the internal memory
+  u8g2.setFont(u8g2_font_6x13_tf);
+  u8g2.drawStr(0,10,"tallyWAN_transmitter");	    // write something to the internal memory
+  u8g2.drawStr(0,25,"TxD:");
+  u8g2.drawStr(35,25,buf_sm);
+  u8g2.drawStr(0,40,"RxD:");
+  u8g2.drawStr(35,40,buf_rm);
+  u8g2.sendBuffer();
+
 }
 
 //////////////////////////////////////////////////////////////////////
 
 void setup() {
-  // put your setup code here, to run once:
-  Serial.begin(9600);
+  Serial.begin(9600);                   // initialize serial
   while (!Serial);
-  Serial.println("LoRa Sender");
 
-  lastDisplayTime = millis();
-  lastTaktTime1 = millis();
-  lastTaktTime2 = millis();
-  lastDiscoverTime = millis();
+  mode = "nothing";
 
-  pinMode(LED_PIN_INTERNAL, OUTPUT);
+  Serial.println("");
+  Serial.println("tallyWAN_transmitter");
 
+  // override the default CS, reset, and IRQ pins (optional)
   LoRa.setPins(csPin, resetPin, irqPin); // set CS, reset, IRQ pin
   LoRa.setTxPower(17);  //2-20 default 17
   LoRa.setSpreadingFactor(7);    //6-12 default 7
@@ -160,111 +130,79 @@ void setup() {
   LoRa.setPreambleLength(8);    //6-65535 default 8
   LoRa.begin(868E6);  //set Frequenz 915E6 or 868E6
 
-  if (!LoRa.begin(868E6)) {
-    Serial.println("Starting LoRa failed");
-    while (1);
+  if (!LoRa.begin(868E6)) {             // initialize ratio at 868 MHz
+    Serial.println("LoRa init failed. Check your connections.");
+    while (true);                       // if failed, do nothing
   }
 
+  Serial.println("LoRa init succeeded.");
+
   u8g2.begin();
+  u8g2.clearBuffer();
+  u8g2.setFont(u8g2_font_6x13_tf);	
+  u8g2.drawStr(0,10,"tallyWAN_transmitter");
+  u8g2.drawStr(0,25,"TxD:");
+  u8g2.drawStr(0,40,"RxD:");
+  u8g2.sendBuffer();
+
+  Serial.println("OLED init succeeded.");
+
+  pinMode(LED_PIN_INTERNAL, OUTPUT);
 
 }
-
 
 //////////////////////////////////////////////////////////////////////
 
 void loop() {
 
-  switch(mode)
-  {
-    case dis:
+  if (mode == "nothing") {
+    mode = "discover";
+  }
 
-      if (millis() - lastDiscoverTime > interval) {
-          message = "Any Receiver?";       // send a message
-          sendMessage(message);
-          printDisplay(localAddress, destination, mode, message);
-          Serial.println("Sending " + message);
-          
-          lastDiscoverTime = millis();            // timestamp the message
-          countDiscover++;
-        }
-      if (countDiscover == 3) {
-          countDiscover = 0;
-          mode = off;
-          break;
-      }
+  //Discover Mode
+  if ((mode == "discover") && (millis() - lastDiscoverTime > interval)) {
+    digitalWrite(LED_PIN_INTERNAL, HIGH);
+    String message = "dis-anyrec?";   // send a message
+    sendMessage(message);
+    printDisplay(message, "");
+    Serial.println("TxD: " + message);
+    lastDiscoverTime = millis();            // timestamp the message
+    digitalWrite(LED_PIN_INTERNAL, LOW);
+    mode = "offer";
+  }
 
-    case off:
+  //Offer Mode
+  if ((mode == "offer")) {
+    // parse for a packet, and call onReceive with the result:
+    String incoming = onReceive(LoRa.parsePacket());
+    printDisplay("", incoming);
 
-      onReceive(LoRa.parsePacket());
-      printDisplay(sender2, recipient2, mode, message);
-      break;
+    if ((incoming == "off-tally1") || (millis() - lastOfferTime > 100000)) {
+      mode = "discover";
+      Serial.println("JO");
+      counterOffer++;
+    }
+
+    if ((incoming == "off-tally1") && (counterOffer >= 3)) {
+      digitalWrite(LED_PIN_INTERNAL, HIGH);
+      counterOffer = 0;
+      mode = "request";
+    }
 
   }
 
+  //Request Mode
+  if ((mode == "request")) {
+    Serial.println("Tally 0xBB angemeldet!");
+  
+  }
+
+  //Acknowledge Mode
+  if ((mode == "acknowledge")) {
+  
+  }
 
 }
-
-//////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////
-
-/*
-
-//CLOCK
-  if (clk_state == 0 && millis() - lastTaktTime1 < 1000) {
-    clk_state = 1;
-  }
-    
-  if (clk_state == 1 && millis() - lastTaktTime1 >= 1000) {
-    if(millis() - lastTaktTime1 <= 2000) {
-    clk_state = 0;
-    }
-  }
-    
-  if (last_clk_state != clk_state) {   
-    last_clk_state = clk_state;
-    if (clk_state == 1) {
-
-      char buf_c[8];
-
-      itoa(counter, buf_c, 10);
-      String message_status = ("REQ/A/0/B/");
-      String message = message_status + buf_c;
-
-      Serial.print("Sending packet: ");
-      Serial.println(message);
-
-      // send lora packet
-      LoRa.beginPacket();
-      LoRa.print(message);    //LoRa.write(byte) //255 bytes maximum //LoRa.write(buffer, length);
-      LoRa.endPacket();
-
-      // convert message for display
-      char buf[16];
-      sprintf(buf, "%s%s", message_status, buf_c);
-
-      // print message on the display
-      u8g2.clearBuffer();					// clear the internal memory
-      u8g2.setFont(u8g2_font_6x13_tf);	// choose a suitable font
-      u8g2.drawStr(0,10,"LoRa Sender");	// write something to the internal memory
-      u8g2.drawStr(0,30,buf);
-      u8g2.sendBuffer();					// transfer internal memory to the display
-
-      digitalWrite(LED_PIN_INTERNAL, clk_state);
-
-      counter++;
-    }
-
-    if (clk_state == 0) {
-      digitalWrite(LED_PIN_INTERNAL, clk_state);
-    }
-  }
-
-  if (millis() - lastTaktTime1 >= 2000){
-    lastTaktTime1 = millis();
-  }
-
-*/
 
 //////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////
