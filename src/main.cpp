@@ -17,38 +17,46 @@
 
 const int csPin = 18;          // LoRa radio chip select
 const int resetPin = 23;       // LoRa radio reset
-const int irqPin = 26;         // change for your board; must be a hardware interrupt pin
+const int irqPin = 26;         // Change for your board; must be a hardware interrupt pin
 
-String outgoing;              // outgoing message
-String mode;
+String outgoing;               // Outgoing message
+String mode = "discover";
+String name = "TallyWAN";      // Device Name
+String bb, cc, dd, ee;
 
-char buf_sm[12];
-char buf_rm[12];
-char buf_t1[4];
-char buf_t2[4];
-char buf_t3[4];
-char buf_t4[4];
-String t1, t2, t3, t4;
+char buf_tx[12];
+char buf_rx[12];
+char buf_0xbb[8];
+char buf_0xcc[8];
+char buf_0xdd[8];
+char buf_0xee[8];
+char buf_name[12];
+char buf_localAddress[4];
+char buf_mode[8];
+char buf_rxAdr[4];
+char buf_txAdr[4];
 
-byte msgCount = 0;            // count of outgoing messages
-byte localAddress = 0xaa;     // address of this device
-byte destination = 0xff;      // destination to send to
-long lastDiscoverTime = 0;    // last send time
-long lastOfferTime = 0;       // last send time
+byte msgCount = 0;            // Count of outgoing messages
+byte localAddress = 0xaa;     // Address of this device
+byte destination = 0xff;      // Destination to send to
+long lastDiscoverTime = 0;    // Last send time
+long lastOfferTime = 0;       // Last send time
+long lastOfferTimeEnd = 0;
 long lastAnalogReadTime = 0;
 long lastTestTime = 0;
 
-int counter_tallys = 0;
+int counterTallys = 0;
 int gpioP1 = 12, gpioP2 = 13, gpioP3 = 14, gpioP4 = 15;
 int gpioV1, gpioV2, gpioV3, gpioV4;
-float gpioV1Map, gpioV2Map, gpioV3Map, gpioV4Map;
+int gpioV1Map, gpioV2Map, gpioV3Map, gpioV4Map;
+float gpioV1Cal, gpioV2Cal, gpioV3Cal, gpioV4Cal;
 
 bool gpioC1 = HIGH;
 bool gpioC2 = HIGH;
-bool tally1 = LOW; 
-bool tally2 = LOW; 
-bool tally3 = LOW; 
-bool tally4 = LOW; 
+bool tally_0xbb = LOW; 
+bool tally_0xcc = LOW; 
+bool tally_0xdd = LOW; 
+bool tally_0xee = LOW; 
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ 22, /* data=*/ 21);   // ESP32 Thing, HW I2C with pin remapping
 
@@ -74,7 +82,7 @@ void onReceive(int packetSize, String *ptr_rx_adr, String *ptr_tx_adr, String *p
 
   // read packet header bytes:
   int recipient = LoRa.read();          // recipient address
-  int sender = LoRa.read();            // sender address
+  int sender = LoRa.read();             // sender address
   byte incomingMsgId = LoRa.read();     // incoming msg ID
   byte incomingLength = LoRa.read();    // incoming msg length
 
@@ -95,16 +103,6 @@ void onReceive(int packetSize, String *ptr_rx_adr, String *ptr_tx_adr, String *p
     return;                             // skip rest of function
   }
 
-  // if message is for this device, or broadcast, print details:
-  /*Serial.println("Received from: 0x" + String(sender, HEX));
-  Serial.println("Sent to: 0x" + String(recipient, HEX));
-  Serial.println("Message ID: " + String(incomingMsgId));
-  Serial.println("Message length: " + String(incomingLength));
-  Serial.println("Message: " + incoming);
-  Serial.println("RSSI: " + String(LoRa.packetRssi()));
-  Serial.println("Snr: " + String(LoRa.packetSnr()));
-  Serial.println();*/
-
   *ptr_rx_adr = String(recipient, HEX);
   *ptr_tx_adr = String(sender, HEX);
   *ptr_incoming = incoming;
@@ -117,26 +115,40 @@ void onReceive(int packetSize, String *ptr_rx_adr, String *ptr_tx_adr, String *p
 
 //////////////////////////////////////////////////////////////////////
 
-void printDisplay(String sm, String rm) {
+void printDisplay(String tx, String rx, String txAdr) {   //tx Transmit Message,  rx Receive Message,   txAdr Receive Address
 
-  sprintf(buf_sm, "%s", sm);
-  sprintf(buf_rm, "%s", rm);
-  sprintf(buf_t1, "%s", t1);
-  sprintf(buf_t2, "%s", t2);
-  sprintf(buf_t3, "%s", t3);
-  sprintf(buf_t4, "%s", t4);
+  sprintf(buf_tx, "%s", tx);
+  sprintf(buf_rx, "%s", rx);
+  sprintf(buf_0xbb, "%s", bb);
+  sprintf(buf_0xcc, "%s", cc);
+  sprintf(buf_0xdd, "%s", dd);
+  sprintf(buf_0xee, "%s", ee);
+  sprintf(buf_name, "%s", name);
+  sprintf(buf_localAddress, "%x", localAddress);    // byte
+  sprintf(buf_mode, "%s", mode);                    // string
+  sprintf(buf_rxAdr, "%x", destination);            // byte
+  sprintf(buf_txAdr, "%s", txAdr);
 
-  u8g2.clearBuffer();					                    // clear the internal memory
+  u8g2.clearBuffer();					      // clear the internal memory
   u8g2.setFont(u8g2_font_6x13_tf);
-  u8g2.drawStr(0,10,"tallyWAN_transmitter");	    // write something to the internal memory
-  u8g2.drawStr(0,25,"TxD:");
-  u8g2.drawStr(35,25,buf_sm);
-  u8g2.drawStr(0,40,"RxD:");
-  u8g2.drawStr(35,40,buf_rm);
-  u8g2.drawStr(0,55,buf_t1);
-  u8g2.drawStr(10,55,buf_t2);
-  u8g2.drawStr(20,55,buf_t3);
-  u8g2.drawStr(30,55,buf_t4);
+  u8g2.drawStr(0,10,buf_name);	    // write something to the internal memory
+  u8g2.drawStr(0,22,"Adr:");
+  u8g2.drawStr(30,22,"0x");
+  u8g2.drawStr(42,22,buf_localAddress);
+  u8g2.drawStr(62,22,buf_mode);
+  u8g2.drawStr(0,34,"TxD:");
+  u8g2.drawStr(30,34,buf_tx);
+  u8g2.drawStr(100,34,"0x");
+  u8g2.drawStr(112,34,buf_rxAdr);
+  u8g2.drawStr(0,46,"RxD:");
+  u8g2.drawStr(30,46,buf_rx);
+  u8g2.drawStr(100,46,"0x");
+  u8g2.drawStr(112,46,buf_txAdr);
+  u8g2.drawStr(0,58,"Syn:");
+  u8g2.drawStr(30,58,buf_0xbb);
+  u8g2.drawStr(55,58,buf_0xcc);
+  u8g2.drawStr(80,58,buf_0xdd);
+  u8g2.drawStr(105,58,buf_0xee);
   u8g2.sendBuffer();
 
 }
@@ -147,10 +159,8 @@ void setup() {
   Serial.begin(9600);                   // initialize serial
   while (!Serial);
 
-  mode = "discover";
-
   Serial.println("");
-  Serial.println("tallyWAN_transmitter");
+  Serial.println(name);
 
   // override the default CS, reset, and IRQ pins (optional)
   LoRa.setPins(csPin, resetPin, irqPin); // set CS, reset, IRQ pin
@@ -169,12 +179,7 @@ void setup() {
   Serial.println("LoRa init succeeded.");
 
   u8g2.begin();
-  u8g2.clearBuffer();
-  u8g2.setFont(u8g2_font_6x13_tf);	
-  u8g2.drawStr(0,10,"tallyWAN_transmitter");
-  u8g2.drawStr(0,25,"TxD:");
-  u8g2.drawStr(0,40,"RxD:");
-  u8g2.sendBuffer();
+  printDisplay("", "", "");
 
   Serial.println("OLED init succeeded.");
 
@@ -190,122 +195,143 @@ void setup() {
 
 void loop() {
 
+  /*
   if (millis() - lastTestTime > 250) {
       Serial.print("mode: "); Serial.println(mode);
-      Serial.print("counter_tallys: "); Serial.println(counter_tallys);
+      Serial.print("counterTallys: "); Serial.println(counterTallys);
+      Serial.print("tallys: "); Serial.println(tally_0xbb); Serial.println(tally_0xcc); Serial.println(tally_0xdd); Serial.println(tally_0xee); 
       lastTestTime = millis();
     }
-  
-  //Discover Mode
+  */
+
+  // Discover Mode
   if ((mode == "discover")) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
-    String message = "dis-anyrec?";         //Send a message
+    String message = "dis-anyrec?";         // Send a message
     sendMessage(message);
-    printDisplay(message, "");
+    printDisplay(message, "", "");
     Serial.println("TxD: " + message);
     digitalWrite(LED_PIN_INTERNAL, LOW);
     lastOfferTime = millis();
     mode = "offer";
   }
 
-  //Offer Mode
+  // Offer Mode
   while (mode == "offer") {
     String rx_adr, tx_adr, incoming, rssi, snr;
-    onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    //Parse Packets and Read it
-    printDisplay("", incoming);
+    onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
+    printDisplay("", incoming, (String)tx_adr);
     //Serial.print("rx_adr: "); Serial.println((String)rx_adr);
     //Serial.print("tx_adr: "); Serial.println((String)tx_adr);
     //Serial.print("RxD: "); Serial.println((String)incoming);
     //Serial.print("rssi: "); Serial.println((String)rssi);
     //Serial.print("snr: "); Serial.println((String)snr);*/
-    
-    if (incoming == "off-tally1") {
-      tally1 = HIGH;
-      t1 = "T1";
-      counter_tallys++;
-      lastOfferTime = millis();
+
+    if (millis() - lastTestTime > 2000) {
+    Serial.print("mode: "); Serial.println(mode);
+    Serial.print("counterTallys: "); Serial.println(counterTallys);
+    Serial.print("tallys: "); Serial.print(tally_0xbb); Serial.print(tally_0xcc); Serial.print(tally_0xdd); Serial.println(tally_0xee); 
+    lastTestTime = millis();
     }
-    if (incoming == "off-tally2") {
-      tally2 = HIGH;
-      t2 = "T2";
-      counter_tallys++;
+
+    if (incoming == "off-0xbb") {
+      tally_0xbb = HIGH;
+      bb = "0xbb";
+      counterTallys++;
       lastOfferTime = millis();
+      lastOfferTimeEnd = millis();
     }
-    if (incoming == "off-tally3") {
-      tally3 = HIGH;
-      t3 = "T3";
-      counter_tallys++;
+    if (incoming == "off-0xcc") {
+      tally_0xcc = HIGH;
+      cc = "0xcc";
+      counterTallys++;
       lastOfferTime = millis();
+      lastOfferTimeEnd = millis();
     }
-    if (incoming == "off-tally4") {
-      tally4 = HIGH;
-      t4 = "T4";
-      counter_tallys++;
+    if (incoming == "off-0xdd") {
+      tally_0xdd = HIGH;
+      dd = "0xdd";
+      counterTallys++;
       lastOfferTime = millis();
+      lastOfferTimeEnd = millis();
     }
-    
-    if (millis() - lastOfferTime > 10000) {
-      if (counter_tallys >= 1) {
-        mode = "request";
-        break;
-      }
-      if (counter_tallys == 0) {
-        mode = "discover"; 
-        break;
-      }
+    if (incoming == "off-0xee") {
+      tally_0xee = HIGH;
+      ee = "0xee";
+      counterTallys++;
+      lastOfferTime = millis();
+      lastOfferTimeEnd = millis();
+    }
+
+    if ((millis() - lastOfferTime > 10000) && ((counterTallys >= 0))) {
+      mode = "discover"; 
+      break;
+    }
+
+    if ((millis() - lastOfferTimeEnd > 60000) && (counterTallys >= 1)) {
+      mode = "request"; 
+      printDisplay("", "", "");
+      break;
     }
   }
   
-  //Request Mode
+  // Request Mode
   if ((mode == "request") && (millis() - lastAnalogReadTime > 250)) {
 
     gpioV1 = analogRead(gpioP1);
     gpioV2 = analogRead(gpioP2);
     gpioV3 = analogRead(gpioP3);
     gpioV4 = analogRead(gpioP4);
-    gpioV1Map = gpioV1 * (3.3 / 4095.0);
-    gpioV2Map = gpioV2 * (3.3 / 4095.0);
-    gpioV3Map = gpioV3 * (3.3 / 4095.0);
-    gpioV4Map = gpioV4 * (3.3 / 4095.0);
+    gpioV1Map = map(gpioV1, 400, 4095, 0, 3695);
+    gpioV2Map = map(gpioV2, 400, 4095, 0, 3695);
+    gpioV3Map = map(gpioV3, 400, 4095, 0, 3695);
+    gpioV4Map = map(gpioV4, 400, 4095, 0, 3695); 
+    gpioV1Cal = gpioV1Map * (3.3 / 3695.0);
+    gpioV2Cal = gpioV2Map * (3.3 / 3695.0);
+    gpioV3Cal = gpioV3Map * (3.3 / 3695.0);
+    gpioV4Cal = gpioV4Map * (3.3 / 3695.0);
 
-    Serial.print("gpioV2: "); Serial.println(gpioV2);
-    Serial.print("gpioV2Map: "); Serial.print(gpioV2Map); Serial.println(" V");
-
-    if (gpioV1Map > 2.0 && tally1 == HIGH && gpioC1 == HIGH) {
+    /*
+    Serial.print("gpioV1: "); Serial.print(gpioV1); Serial.print(" gpioV1Cal: "); Serial.print(gpioV1Cal); Serial.println(" V");
+    Serial.print("gpioV2: "); Serial.print(gpioV2); Serial.print(" gpioV2Cal: "); Serial.print(gpioV2Cal); Serial.println(" V");
+    Serial.print("gpioV3: "); Serial.print(gpioV3); Serial.print(" gpioV3Cal: "); Serial.print(gpioV3Cal); Serial.println(" V");
+    Serial.print("gpioV4: "); Serial.print(gpioV4); Serial.print(" gpioV4Cal: "); Serial.print(gpioV4Cal); Serial.println(" V");
+    */
+    if (gpioV1Cal > 2.0 && tally_0xbb == HIGH && gpioC1 == HIGH) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
-      String message = "req-tally1on";         //Send a message
+      String message = "req-0xbb-high";         // Send a message
       sendMessage(message);
-      printDisplay(message, "");
+      printDisplay(message, "", "");
       Serial.println("TxD: " + message);
       gpioC1 = !gpioC1;
       digitalWrite(LED_PIN_INTERNAL, LOW);
     }
 
-    if (gpioV1Map < 2.0 && tally1 == HIGH && gpioC1 == LOW) {
+    if (gpioV1Cal < 2.0 && tally_0xbb == HIGH && gpioC1 == LOW) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
-      String message = "req-tally1off";         //Send a message
+      String message = "req-0xbb-low";         // Send a message
       sendMessage(message);
-      printDisplay(message, "");
+      printDisplay(message, "", "");
       Serial.println("TxD: " + message);
       gpioC1 = !gpioC1;
       digitalWrite(LED_PIN_INTERNAL, LOW);
     }
 
-    if (gpioV1Map > 2.0 && tally2 == HIGH && gpioC2 == HIGH) {
+    if (gpioV2Cal > 2.0 && tally_0xcc == HIGH && gpioC2 == HIGH) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
-      String message = "req-tally2on";         //Send a message
+      String message = "req-0xcc-high";         // Send a message
       sendMessage(message);
-      printDisplay(message, "");
+      printDisplay(message, "", "");
       Serial.println("TxD: " + message);
       gpioC2 = !gpioC2;
       digitalWrite(LED_PIN_INTERNAL, LOW);
     }
 
-    if (gpioV1Map < 2.0 && tally2 == HIGH && gpioC2 == LOW) {
+    if (gpioV2Cal < 2.0 && tally_0xcc == HIGH && gpioC2 == LOW) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
-      String message = "req-tally2off";         //Send a message
+      String message = "req-0xcc-low";         // Send a message
       sendMessage(message);
-      printDisplay(message, "");
+      printDisplay(message, "", "");
       Serial.println("TxD: " + message);
       gpioC2 = !gpioC2;
       digitalWrite(LED_PIN_INTERNAL, LOW);
@@ -314,12 +340,12 @@ void loop() {
     mode = "request";
   }
 
-  //Acknowledge Mode
+  // Acknowledge Mode
   if ((mode == "acknowledge")) {
   
   }
 
-  //Control Mode
+  // Control Mode
   if (millis() - lastDiscoverTime > 60000) {
     
   }
