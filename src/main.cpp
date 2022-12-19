@@ -6,6 +6,7 @@
 #include <U8g2lib.h>
 #include <LoRa.h>
 #include <Adafruit_NeoPixel.h>
+#include <Pangodream_18650_CL.h>
 
 #ifdef U8X8_HAVE_HW_SPI
 #include <SPI.h>
@@ -61,6 +62,11 @@ bool tally_0xee = LOW;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ 22, /* data=*/ 21);   // ESP32 Thing, HW I2C with pin remapping
 
 #define LED_PIN_INTERNAL    25
+#define ADC_PIN             35
+#define CONV_FACTOR        1.7
+#define READS               20
+
+Pangodream_18650_CL BL(ADC_PIN, CONV_FACTOR, READS);
 
 //////////////////////////////////////////////////////////////////////
 
@@ -195,14 +201,20 @@ void setup() {
 
 void loop() {
 
-  /*
-  if (millis() - lastTestTime > 250) {
-      Serial.print("mode: "); Serial.println(mode);
-      Serial.print("counterTallys: "); Serial.println(counterTallys);
-      Serial.print("tallys: "); Serial.println(tally_0xbb); Serial.println(tally_0xcc); Serial.println(tally_0xdd); Serial.println(tally_0xee); 
-      lastTestTime = millis();
+  
+  if (millis() - lastTestTime > 2000) {
+    Serial.print("Value from pin: ");
+    Serial.println(analogRead(34));
+    Serial.print("Average value from pin: ");
+    Serial.println(BL.pinRead());
+    Serial.print("Volts: ");
+    Serial.println(BL.getBatteryVolts());
+    Serial.print("Charge level: ");
+    Serial.println(BL.getBatteryChargeLevel());
+    Serial.println("");
+    lastTestTime = millis();
     }
-  */
+  
 
   // Discover Mode
   if ((mode == "discover")) {
@@ -221,11 +233,6 @@ void loop() {
     String rx_adr, tx_adr, incoming, rssi, snr;
     onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
     printDisplay("", incoming, (String)tx_adr);
-    //Serial.print("rx_adr: "); Serial.println((String)rx_adr);
-    //Serial.print("tx_adr: "); Serial.println((String)tx_adr);
-    //Serial.print("RxD: "); Serial.println((String)incoming);
-    //Serial.print("rssi: "); Serial.println((String)rssi);
-    //Serial.print("snr: "); Serial.println((String)snr);*/
 
     if (millis() - lastTestTime > 2000) {
     Serial.print("mode: "); Serial.println(mode);
