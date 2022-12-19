@@ -27,15 +27,17 @@ String bb, cc, dd, ee;
 
 char buf_tx[12];
 char buf_rx[12];
-char buf_0xbb[8];
-char buf_0xcc[8];
-char buf_0xdd[8];
-char buf_0xee[8];
-char buf_name[12];
-char buf_localAddress[4];
-char buf_mode[8];
-char buf_rxAdr[4];
-char buf_txAdr[4];
+char buf_0xbb[5];
+char buf_0xcc[5];
+char buf_0xdd[5];
+char buf_0xee[5];
+char buf_name[9];
+char buf_localAddress[5];
+char buf_mode[9];
+char buf_rxAdr[5];
+char buf_txAdr[5];
+char buf_bV[5];
+char buf_bL[4];
 
 byte msgCount = 0;            // Count of outgoing messages
 byte localAddress = 0xaa;     // Address of this device
@@ -44,7 +46,9 @@ long lastDiscoverTime = 0;    // Last send time
 long lastOfferTime = 0;       // Last send time
 long lastOfferTimeEnd = 0;
 long lastAnalogReadTime = 0;
+long lastGetBattery = 0;
 long lastTestTime = 0;
+bool initBattery = HIGH;
 
 int counterTallys = 0;
 int gpioP1 = 12, gpioP2 = 13, gpioP3 = 14, gpioP4 = 15;
@@ -135,9 +139,20 @@ void printDisplay(String tx, String rx, String txAdr) {   //tx Transmit Message,
   sprintf(buf_rxAdr, "%x", destination);            // byte
   sprintf(buf_txAdr, "%s", txAdr);
 
+  if ((millis() - lastGetBattery > 5000) || (initBattery == HIGH)) {
+    snprintf(buf_bV, 5, "%f", BL.getBatteryVolts());
+    snprintf(buf_bL, 4, "%d", BL.getBatteryChargeLevel());
+    initBattery = LOW;
+    lastGetBattery = millis();
+  }
+
   u8g2.clearBuffer();					      // clear the internal memory
   u8g2.setFont(u8g2_font_6x13_tf);
   u8g2.drawStr(0,10,buf_name);	    // write something to the internal memory
+  u8g2.drawStr(62,10,buf_bV);
+  u8g2.drawStr(88,10,"V");
+  u8g2.drawStr(100,10,buf_bL);
+  u8g2.drawStr(121,10,"%");
   u8g2.drawStr(0,22,"Adr:");
   u8g2.drawStr(30,22,"0x");
   u8g2.drawStr(42,22,buf_localAddress);
