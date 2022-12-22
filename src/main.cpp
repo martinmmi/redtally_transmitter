@@ -38,6 +38,7 @@ char buf_rxAdr[5];
 char buf_txAdr[5];
 char buf_bV[5];
 char buf_bL[4];
+char buf_counterTallys[4];
 
 byte msgCount = 0;            // Count of outgoing messages
 byte localAddress = 0xaa;     // Address of this device            
@@ -48,7 +49,6 @@ long lastDiscoverTime = 0;    // Last send time
 long lastOfferTime = 0;       // Last send time
 long lastOfferTimeEnd = 0;
 long lastControlTime = 0;
-long lastControlTimeEnd = 0;
 long lastAckTime = 0;      
 long lastAckTimeEnd = 0;      
 long lastAnalogReadTime = 0;
@@ -56,6 +56,8 @@ long lastGetBattery = 0;
 long lastTestTime = 0;
 long lastDisplayPrint = 0;
 
+int counterSend = 0;
+int counterSendMax = 3;
 int counterTallys = 0;
 int counterTallysNew = 0;
 int gpioP1 = 12, gpioP2 = 13, gpioP3 = 14, gpioP4 = 15;
@@ -146,6 +148,7 @@ void printDisplay(String tx, String rx, String txAdr) {   //tx Transmit Message,
   sprintf(buf_mode, "%s", mode);                    // string
   sprintf(buf_rxAdr, "%x", destination);            // byte
   sprintf(buf_txAdr, "%s", txAdr);
+  sprintf(buf_counterTallys, "%d", counterTallys);
 
   if ((millis() - lastGetBattery > 5000) || (initBattery == HIGH)) {
     snprintf(buf_bV, 5, "%f", BL.getBatteryVolts());
@@ -175,6 +178,7 @@ void printDisplay(String tx, String rx, String txAdr) {   //tx Transmit Message,
   u8g2.drawStr(55,58,buf_cc);
   u8g2.drawStr(80,58,buf_dd);
   u8g2.drawStr(105,58,buf_ee);
+  u8g2.drawStr(121,58,buf_counterTallys);
   u8g2.sendBuffer();
 
 }
@@ -232,6 +236,7 @@ void loop() {
     Serial.println("TxD: " + message);
     digitalWrite(LED_PIN_INTERNAL, LOW);
     lastOfferTime = millis();
+    lastDiscoverTime = millis();
     mode = "offer";
   }
 
@@ -246,6 +251,7 @@ void loop() {
     }
     if (incoming != "") {
       Serial.println("RxD: " + incoming);
+      Serial.print("RxD_Adr: "); Serial.print(rx_adr); Serial.print(" TxD_Adr: "); Serial.println(tx_adr);
     }
 
     if ((incoming == "off") && (tx_adr == "bb")) {
@@ -277,14 +283,15 @@ void loop() {
       lastOfferTimeEnd = millis();
     }
 
-    if ((millis() - lastOfferTime > 8000) && ((counterTallys >= 0))) {
+    if ((millis() - lastOfferTime > 5000) && ((counterTallys >= 0))) {
       mode = "discover"; 
       break;
     }
 
-    if ((millis() - lastOfferTimeEnd > 40000) && (counterTallys >= 1)) {
+    if ((millis() - lastOfferTimeEnd > 30000) && (counterTallys >= 1)) {
       mode = "request"; 
       printDisplay("", "", "");
+      counterTallys = counterTallysNew;
       break;
     }
   }
@@ -305,12 +312,6 @@ void loop() {
     gpioV3Cal = gpioV3Map * (3.3 / 3695.0);
     gpioV4Cal = gpioV4Map * (3.3 / 3695.0);
 
-    /*
-    Serial.print("gpioV1: "); Serial.print(gpioV1); Serial.print(" gpioV1Cal: "); Serial.print(gpioV1Cal); Serial.println(" V");
-    Serial.print("gpioV2: "); Serial.print(gpioV2); Serial.print(" gpioV2Cal: "); Serial.print(gpioV2Cal); Serial.println(" V");
-    Serial.print("gpioV3: "); Serial.print(gpioV3); Serial.print(" gpioV3Cal: "); Serial.print(gpioV3Cal); Serial.println(" V");
-    Serial.print("gpioV4: "); Serial.print(gpioV4); Serial.print(" gpioV4Cal: "); Serial.print(gpioV4Cal); Serial.println(" V");
-    */
     if (gpioV1Cal > 2.0 && tally_bb == HIGH && gpioC1 == HIGH) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
       destination = 0xbb;
@@ -376,6 +377,7 @@ void loop() {
     }
     if (incoming != "") {
       Serial.println("RxD: " + incoming);
+      Serial.print("RxD_Adr: "); Serial.print(rx_adr); Serial.print(" TxD_Adr: "); Serial.println(tx_adr);
     }
 
     if ((incoming == "ack") && (tx_adr == "bb")) {
@@ -386,17 +388,31 @@ void loop() {
       mode = "request";
       break;
     }
-    if (millis() - lastAckTime > 2500) {
+    if ((millis() - lastAckTime > 2500) && (counterSend < counterSendMax)) {
       mode = "request";
+      counterSend++;
       gpioC1 = !gpioC1;
       gpioC2 = !gpioC2;
+      break;
+    }
+    if ((millis() - lastAckTime > 10000) && (counterSend == counterSendMax)) {
+      mode = "request";
+      counterSend = 0;
       break;
     }
     
   }
 
   // Control Mode
-  if ((millis() - lastDiscoverTime > 600000) || (mode == "control")) {       // 10 minutes
+  if (millis() - lastDiscoverTime > 90000) {   // every 10 minutes
+    mode = "control";  
+
+    tally_bb = LOW;
+    bb = "";
+    tally_cc = LOW;
+    cc = "";
+    printDisplay("", "", "");  
+
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xff;
     String message = "con-anyrec?";         // Send a message
@@ -404,10 +420,10 @@ void loop() {
     printDisplay(message, "", "");
     Serial.println("TxD: " + message);
     digitalWrite(LED_PIN_INTERNAL, LOW);
+    lastDiscoverTime = millis();
     lastControlTime = millis();
-    lastControlTimeEnd = millis();
 
-    while (true) {
+    while (mode == "control") {
       String rx_adr, tx_adr, incoming, rssi, snr;
       onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
       
@@ -417,6 +433,7 @@ void loop() {
       }
       if (incoming != "") {
         Serial.println("RxD: " + incoming);
+        Serial.print("RxD_Adr: "); Serial.print(rx_adr); Serial.print(" TxD_Adr: "); Serial.println(tx_adr);
       }
 
       if ((incoming == "con") && (tx_adr == "bb")) {
@@ -424,33 +441,31 @@ void loop() {
         bb = "bb";
         counterTallysNew++;
       }
-      else {
-        tally_bb = LOW;
-        bb = "";
-      }
 
       if ((incoming == "con") && (tx_adr == "cc")) {
         tally_cc = HIGH;
         cc = "cc";
         counterTallysNew++;
       }
-      else {
-        tally_cc = LOW;
-        cc = "";
-      }
 
-      if ((millis() - lastControlTime > 2000) && (counterTallys == counterTallysNew)) {
+      if ((incoming == "")) {
+        Serial.println("");
+      }
+      
+      if ((millis() - lastControlTime > 5000) && (counterTallys == counterTallysNew)) {
         mode = "request"; 
+        counterTallys = counterTallysNew;
         break;
       }
 
-      if ((millis() - lastControlTimeEnd > 2000) && (counterTallys > counterTallysNew)) {
+      if ((millis() - lastControlTime > 7000) && (counterTallys > counterTallysNew)) {     //if less then countertallys
         mode = "request"; 
+        counterTallys = counterTallysNew;
         break;
       }
+
     }
-
-    
+   
   }
 
   // Function Print Display if nothing work
