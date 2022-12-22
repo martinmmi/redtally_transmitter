@@ -59,7 +59,6 @@ long lastGetBattery = 0;
 long lastTestTime = 0;
 long lastDisplayPrint = 0;
 
-int expiredControlTime = 120000;
 int counterSend = 0;
 int counterSendMax = 3;
 int counterTallys = 0;
@@ -243,9 +242,9 @@ void loop() {
     digitalWrite(LED_PIN_INTERNAL, LOW);
     lastOfferTime = millis();
     lastDiscoverTimebb = millis();
-    lastDiscoverTimecc = millis() + 5000;
-    lastDiscoverTimedd = millis() + 10000;
-    lastDiscoverTimeee = millis() + 15000;
+    lastDiscoverTimecc = millis();
+    lastDiscoverTimedd = millis();
+    lastDiscoverTimeee = millis();
     mode = "offer";
   }
 
@@ -474,14 +473,14 @@ void loop() {
   }
 
   // Control Mode BB
-  if ((millis() - lastDiscoverTimebb > expiredControlTime) && (tally_bb == HIGH)) {
+  if ((millis() - lastDiscoverTimebb > 180000) && (tally_bb == HIGH)) {
     tally_bb = LOW;
     bb = "";
     counterTallys--;
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xbb;
     printDisplay("", "", ""); 
-    String message = "con";         // Send a message
+    String message = "con-rec?";         // Send a message
     sendMessage(message);
     printDisplay(message, "", "");
     Serial.println("TxD: " + message);
@@ -519,14 +518,14 @@ void loop() {
   }
   
   // Control Mode CC
-  if ((millis() - lastDiscoverTimecc > expiredControlTime) && (tally_cc == HIGH)) {
+  if ((millis() - lastDiscoverTimecc > 185000) && (tally_cc == HIGH)) {
     tally_cc = LOW;
     cc = "";
     counterTallys--;
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xcc;
     printDisplay("", "", ""); 
-    String message = "con";         // Send a message
+    String message = "con-anyrec?";         // Send a message
     sendMessage(message);
     printDisplay(message, "", "");
     Serial.println("TxD: " + message);
@@ -564,14 +563,14 @@ void loop() {
   }
 
   // Control Mode DD
-  if ((millis() - lastDiscoverTimedd > expiredControlTime) && (tally_dd == HIGH)) {
+  if ((millis() - lastDiscoverTimedd > 190000) && (tally_dd == HIGH)) {
     tally_dd = LOW;
     dd = "";
     counterTallys--;
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xdd;
     printDisplay("", "", ""); 
-    String message = "con";         // Send a message
+    String message = "con-anyrec?";         // Send a message
     sendMessage(message);
     printDisplay(message, "", "");
     Serial.println("TxD: " + message);
@@ -609,14 +608,14 @@ void loop() {
   }
 
   // Control Mode EE
-  if ((millis() - lastDiscoverTimeee > expiredControlTime) && (tally_ee == HIGH)) {
+  if ((millis() - lastDiscoverTimeee > 195000) && (tally_ee == HIGH)) {
     tally_ee = LOW;
     ee = "";
     counterTallys--;
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xee;
     printDisplay("", "", ""); 
-    String message = "con";         // Send a message
+    String message = "con-anyrec?";         // Send a message
     sendMessage(message);
     printDisplay(message, "", "");
     Serial.println("TxD: " + message);
