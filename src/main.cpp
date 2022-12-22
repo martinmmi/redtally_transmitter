@@ -76,6 +76,10 @@ bool tally_bb = LOW;
 bool tally_cc = LOW; 
 bool tally_dd = LOW; 
 bool tally_ee = LOW; 
+bool tally_bb_init = LOW; 
+bool tally_cc_init = LOW; 
+bool tally_dd_init = LOW; 
+bool tally_ee_init = LOW;
 bool initBattery = HIGH;
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ 22, /* data=*/ 21);   // ESP32 Thing, HW I2C with pin remapping
@@ -253,6 +257,7 @@ void loop() {
     String rx_adr, tx_adr, incoming, rssi, snr;
     onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
     
+    // Print Incoming and RxD und TxD Adress
     if ((incoming != "") || (millis() - lastTestTime > 1500)) {
       printDisplay("", incoming, tx_adr);
       lastTestTime = millis();
@@ -264,6 +269,7 @@ void loop() {
 
     if ((incoming == "off") && (tx_adr == "bb")) {
       tally_bb = HIGH;
+      tally_bb_init = HIGH;
       bb = "bb";
       counterTallys++;
       lastOfferTime = millis();
@@ -271,6 +277,7 @@ void loop() {
     }
     if ((incoming == "off") && (tx_adr == "cc")) {
       tally_cc = HIGH;
+      tally_cc_init = HIGH;
       cc = "cc";
       counterTallys++;
       lastOfferTime = millis();
@@ -278,6 +285,7 @@ void loop() {
     }
     if ((incoming == "off") && (tx_adr == "dd")) {
       tally_dd = HIGH;
+      tally_dd_init = HIGH;
       dd = "dd";
       counterTallys++;
       lastOfferTime = millis();
@@ -285,18 +293,19 @@ void loop() {
     }
     if ((incoming == "off") && (tx_adr == "ee")) {
       tally_ee = HIGH;
+      tally_ee_init = HIGH;
       ee = "ee";
       counterTallys++;
       lastOfferTime = millis();
       lastOfferTimeEnd = millis();
     }
 
-    if ((millis() - lastOfferTime > 7500) && ((counterTallys >= 0))) {
+    if ((millis() - lastOfferTime > 7500) && ((counterTallys >= 0))) {      // every 7.5 s on discover message
       mode = "discover"; 
       break;
     }
 
-    if ((millis() - lastOfferTimeEnd > 60000) && (counterTallys >= 1)) {
+    if ((millis() - lastOfferTimeEnd > 60000) && (counterTallys >= 1)) {    // after 60 s of no new receivers, request mode
       mode = "request"; 
       break;
     }
@@ -430,6 +439,7 @@ void loop() {
     String rx_adr, tx_adr, incoming, rssi, snr;
     onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
     
+    // Print Incoming and RxD und TxD Adress
     if ((incoming != "") || (millis() - lastTestTime > 1500)) {
       printDisplay("", incoming, tx_adr);
       lastTestTime = millis();
@@ -439,22 +449,13 @@ void loop() {
       Serial.print("RxD_Adr: "); Serial.print(rx_adr); Serial.print(" TxD_Adr: "); Serial.println(tx_adr);
     }
 
-    if ((incoming == "ack") && (tx_adr == "bb")) {
+    // Back to Request Mode
+    if ((incoming == "ack") && ((tx_adr == "bb") || (tx_adr == "cc") || (tx_adr == "dd") ||  (tx_adr == "ee"))) {
       mode = "request";
       break;
     }
-    if ((incoming == "ack") && (tx_adr == "cc")) {
-      mode = "request";
-      break;
-    }
-    if ((incoming == "ack") && (tx_adr == "dd")) {
-      mode = "request";
-      break;
-    }
-    if ((incoming == "ack") && (tx_adr == "ee")) {
-      mode = "request";
-      break;
-    }
+
+    // Toggel and Resend Message, if ACK not arrived after 2.5 secounds
     if ((millis() - lastAckTime > 2500) && (counterSend < counterSendMax)) {
       mode = "request";
       counterSend++;
@@ -464,6 +465,8 @@ void loop() {
       gpioC4 = !gpioC4;
       break;
     }
+
+    // Aborting the routine after 3 failed trys
     if ((millis() - lastAckTime > 10000) && (counterSend == counterSendMax)) {
       mode = "request";
       counterSend = 0;
@@ -472,11 +475,8 @@ void loop() {
     
   }
 
-  // Control Mode BB
-  if ((millis() - lastDiscoverTimebb > 180000) && (tally_bb == HIGH)) {
-    tally_bb = LOW;
-    bb = "";
-    counterTallys--;
+  // Control Mode BB after discover and 3 and 3.5 minutes 
+  if ((millis() - lastDiscoverTimebb > 180000) && ((tally_bb == HIGH) || (tally_bb_init == HIGH))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xbb;
     printDisplay("", "", ""); 
@@ -505,27 +505,28 @@ void loop() {
       if ((incoming == "con") && (tx_adr == "bb")) {
         tally_bb = HIGH;
         bb = "bb";
-        counterTallys++;
         mode = "request";
         break;
       }
 
       if (millis() - lastControlTime > 2500) {
+        tally_bb = LOW;
+        bb = "";
+        counterTallys--;
         mode = "request"; 
         break;
       }
     }
+  Serial.print("Tally: ");Serial.print(tally_bb);Serial.print(tally_cc);Serial.print(tally_dd);Serial.println(tally_ee);
+  Serial.print("Tally Init: ");Serial.print(tally_bb_init);Serial.print(tally_cc_init);Serial.print(tally_dd_init);Serial.println(tally_ee_init);
   }
   
-  // Control Mode CC
-  if ((millis() - lastDiscoverTimecc > 185000) && (tally_cc == HIGH)) {
-    tally_cc = LOW;
-    cc = "";
-    counterTallys--;
+  // Control Mode CC after discover and 3 minutes 
+  if ((millis() - lastDiscoverTimecc > 190000) && ((tally_cc == HIGH) || (tally_cc_init == HIGH))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xcc;
     printDisplay("", "", ""); 
-    String message = "con-anyrec?";         // Send a message
+    String message = "con-rec?";         // Send a message
     sendMessage(message);
     printDisplay(message, "", "");
     Serial.println("TxD: " + message);
@@ -550,27 +551,28 @@ void loop() {
       if ((incoming == "con") && (tx_adr == "cc")) {
         tally_cc = HIGH;
         cc = "cc";
-        counterTallys++;
         mode = "request";
         break;
       }
 
       if (millis() - lastControlTime > 2500) {
+        tally_cc = LOW;
+        cc = "";
+        counterTallys--;
         mode = "request"; 
         break;
       }
     }
+  Serial.print("Tally: ");Serial.print(tally_bb);Serial.print(tally_cc);Serial.print(tally_dd);Serial.println(tally_ee);
+  Serial.print("Tally Init: ");Serial.print(tally_bb_init);Serial.print(tally_cc_init);Serial.print(tally_dd_init);Serial.println(tally_ee_init);
   }
 
-  // Control Mode DD
-  if ((millis() - lastDiscoverTimedd > 190000) && (tally_dd == HIGH)) {
-    tally_dd = LOW;
-    dd = "";
-    counterTallys--;
+  // Control Mode DD after discover and 3 minutes 
+  if ((millis() - lastDiscoverTimedd > 200000) && ((tally_dd == HIGH) || (tally_dd_init == HIGH))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xdd;
     printDisplay("", "", ""); 
-    String message = "con-anyrec?";         // Send a message
+    String message = "con-rec?";         // Send a message
     sendMessage(message);
     printDisplay(message, "", "");
     Serial.println("TxD: " + message);
@@ -595,27 +597,28 @@ void loop() {
       if ((incoming == "con") && (tx_adr == "dd")) {
         tally_dd = HIGH;
         dd = "dd";
-        counterTallys++;
         mode = "request";
         break;
       }
 
       if (millis() - lastControlTime > 2500) {
+        tally_dd = LOW;
+        dd = "";
+        counterTallys--;
         mode = "request"; 
         break;
       }
     }
+  Serial.print("Tally: ");Serial.print(tally_bb);Serial.print(tally_cc);Serial.print(tally_dd);Serial.println(tally_ee);
+  Serial.print("Tally Init: ");Serial.print(tally_bb_init);Serial.print(tally_cc_init);Serial.print(tally_dd_init);Serial.println(tally_ee_init);
   }
 
-  // Control Mode EE
-  if ((millis() - lastDiscoverTimeee > 195000) && (tally_ee == HIGH)) {
-    tally_ee = LOW;
-    ee = "";
-    counterTallys--;
+  // Control Mode EE after discover and 3 minutes 
+  if ((millis() - lastDiscoverTimeee > 210000) && ((tally_ee == HIGH) || (tally_ee_init == HIGH))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xee;
     printDisplay("", "", ""); 
-    String message = "con-anyrec?";         // Send a message
+    String message = "con-rec?";         // Send a message
     sendMessage(message);
     printDisplay(message, "", "");
     Serial.println("TxD: " + message);
@@ -640,16 +643,20 @@ void loop() {
       if ((incoming == "con") && (tx_adr == "ee")) {
         tally_ee = HIGH;
         ee = "ee";
-        counterTallys++;
         mode = "request";
         break;
       }
 
       if (millis() - lastControlTime > 2500) {
+        tally_ee = LOW;
+        ee = "";
+        counterTallys--;
         mode = "request"; 
         break;
       }
     }
+  Serial.print("Tally: ");Serial.print(tally_bb);Serial.print(tally_cc);Serial.print(tally_dd);Serial.println(tally_ee);
+  Serial.print("Tally Init: ");Serial.print(tally_bb_init);Serial.print(tally_cc_init);Serial.print(tally_dd_init);Serial.println(tally_ee_init);
   }
 
   // Function Print Display if nothing work
