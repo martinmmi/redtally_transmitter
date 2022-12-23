@@ -88,6 +88,8 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* 
 #define ADC_PIN             35
 #define CONV_FACTOR        1.8
 #define READS               20
+#define image_width         32
+#define image_height        32
 
 Pangodream_18650_CL BL(ADC_PIN, CONV_FACTOR, READS);
 
@@ -218,8 +220,10 @@ void setup() {
   Serial.println("LoRa init succeeded.");
 
   u8g2.begin();
+  u8g2.enableUTF8Print();
   u8g2.clearBuffer();
   printDisplay("", "", "");
+  u8g2.sendBuffer();
 
   Serial.println("OLED init succeeded.");
 
