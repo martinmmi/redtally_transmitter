@@ -1,5 +1,5 @@
 //////////////////////////////////////////////////////////////////////
-//////////////////// TallyWAN by Martin Mittrenga ////////////////////
+//////////////////// REDTALLY by Martin Mittrenga ////////////////////
 //////////////////////////////////////////////////////////////////////
 
 #include <Arduino.h>
@@ -21,11 +21,19 @@ const int csPin = 18;          // LoRa radio chip select
 const int resetPin = 23;       // LoRa radio reset
 const int irqPin = 26;         // Change for your board; must be a hardware interrupt pin
 
-String outgoing;               // Outgoing message
 String mode = "discover";
+String mode_s = "dis";
 String name = "REDTALLY";      // Device Name
-String bb, cc, dd, ee;
-String allSync;
+String bb = "bb";
+String cc = "cc";
+String dd = "dd";
+String ee = "ee";
+String lost = "x";
+String rx_adr, tx_adr, incoming, outgoing, rssi, snr;
+String tx_adr_bb, tx_adr_cc, tx_adr_dd, tx_adr_ee;
+String incoming_bb, incoming_cc, incoming_dd, incoming_ee;
+String rssi_bb, rssi_cc, rssi_dd, rssi_ee;
+
 String oledInit;
 String loraInit;
 String outputInit;
@@ -36,9 +44,10 @@ char buf_bb[3];
 char buf_cc[3];
 char buf_dd[3];
 char buf_ee[3];
+char buf_lost[2];
 char buf_name[9];
 char buf_localAddress[5];
-char buf_mode[9];
+char buf_mode[4];
 char buf_rxAdr[5];
 char buf_txAdr[5];
 char buf_bV[5];
@@ -47,6 +56,10 @@ char buf_counterTallys[4];
 char buf_oledInit[12];
 char buf_loraInit[12];
 char buf_outputInit[12];
+char buf_rssi_bb[4];
+char buf_rssi_cc[4];
+char buf_rssi_dd[4];
+char buf_rssi_ee[4];
 
 byte msgCount = 0;            // Count of outgoing messages
 byte localAddress = 0xaa;     // Address of this device            ///////////////CCCHHHAAANNNGGGEEE////////////// 
@@ -58,6 +71,7 @@ long lastDiscoverTimecc = 0;    // Last send time
 long lastDiscoverTimedd = 0;    // Last send time
 long lastDiscoverTimeee = 0;    // Last send time
 long lastOfferTime = 0;       // Last send time
+long lastOfferTimeRef = 0;
 long lastOfferTimeEnd = 0;
 long lastControlTime = 0;
 long lastAckTime = 0;      
@@ -74,7 +88,13 @@ int counterTallysNew = 0;
 int gpioP1 = 12, gpioP2 = 13, gpioP3 = 14, gpioP4 = 15;
 int gpioV1, gpioV2, gpioV3, gpioV4;
 int gpioV1Map, gpioV2Map, gpioV3Map, gpioV4Map;
+int buf_rssi_bb_int;
+int buf_rssi_cc_int;
+int buf_rssi_dd_int;
+int buf_rssi_ee_int;
+int bL = 0;
 float gpioV1Cal, gpioV2Cal, gpioV3Cal, gpioV4Cal;
+double bV = 0;
 
 bool gpioC1 = HIGH;
 bool gpioC2 = HIGH;
@@ -89,6 +109,7 @@ bool tally_cc_init = LOW;
 bool tally_dd_init = LOW; 
 bool tally_ee_init = LOW;
 bool initBattery = HIGH;
+bool batteryAttention = LOW;
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ 22, /* data=*/ 21);   // ESP32 Thing, HW I2C with pin remapping
 
@@ -104,6 +125,12 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* 
 #define logoHeight          64
 #define loraWidth          128
 #define loraHeight          64
+#define batteryWidth        29
+#define batteryHeight       15
+#define signalWidth         21
+#define signalHeight        18
+#define lineWidth            2
+#define lineHeight          10
 
 Pangodream_18650_CL BL(ADC_PIN, CONV_FACTOR, READS);
 
@@ -222,13 +249,13 @@ void printLora(int color) {
 
 //////////////////////////////////////////////////////////////////////
 
-void sendMessage(String outgoing) {
+void sendMessage(String message) {
   LoRa.beginPacket();                   // start packet
   LoRa.write(destination);              // add destination address
   LoRa.write(localAddress);             // add sender address
   LoRa.write(msgCount);                 // add message ID
-  LoRa.write(outgoing.length());        // add payload length
-  LoRa.print(outgoing);                 // add payload
+  LoRa.write(message.length());        // add payload length
+  LoRa.print(message);                 // add payload
   LoRa.endPacket();                     // finish packet and send it
   msgCount++;                           // increment message ID
 }
@@ -243,8 +270,6 @@ void onReceive(int packetSize, String *ptr_rx_adr, String *ptr_tx_adr, String *p
   int sender = LoRa.read();             // sender address
   byte incomingMsgId = LoRa.read();     // incoming msg ID
   byte incomingLength = LoRa.read();    // incoming msg length
-
-  String incoming = "";
 
   while (LoRa.available()) {
     incoming += (char)LoRa.read();
@@ -273,52 +298,291 @@ void onReceive(int packetSize, String *ptr_rx_adr, String *ptr_tx_adr, String *p
 
 //////////////////////////////////////////////////////////////////////
 
-void printDisplay(String tx, String rx, String txAdr) {   //tx Transmit Message,  rx Receive Message,   txAdr Receive Address
+void emptyDisplay() {
 
-  sprintf(buf_tx, "%s", tx);
-  sprintf(buf_rx, "%s", rx);
+  string_destinationAddress = "";
+
+  rx_adr = "";
+  outgoing = "";
+
+  tx_adr = "";
+  incoming = "";
+
+  rssi = "";
+  snr = "";
+
+}
+
+//////////////////////////////////////////////////////////////////////
+
+void printDisplay() {   //tx Transmit Message,  rx Receive Message,   txAdr Receive Address
+
+  /*Serial.println("");
+  Serial.print("Mode: "); Serial.println(mode);
+  Serial.print("Voltage: "); Serial.print(bV); Serial.println(" V");
+  Serial.print("Voltage Level: "); Serial.print(bL); Serial.println(" %");
+  Serial.print("TxD Adr: "); Serial.println(string_destinationAddress);
+  Serial.print("TxD: "); Serial.println(outgoing);
+  Serial.print("RxD Adr: "); Serial.println(tx_adr);
+  Serial.print("RxD: "); Serial.println(incoming);
+  Serial.print("RxD Adr bb: "); Serial.println(tx_adr_bb);
+  Serial.print("RxD bb: "); Serial.println(incoming_bb);
+  Serial.print("Rssi: "); Serial.println(rssi_bb);
+  Serial.print("Tally bb: "); Serial.println(tally_bb);
+  Serial.print("Tally bb init: "); Serial.println(tally_bb_init);
+  Serial.print("Tally cc: "); Serial.println(tally_cc);
+  Serial.print("Tally cc init: "); Serial.println(tally_cc_init);
+  Serial.print("Tally dd: "); Serial.println(tally_dd);
+  Serial.print("Tally dd init: "); Serial.println(tally_dd_init);
+  Serial.print("Tally ee: "); Serial.println(tally_ee);
+  Serial.print("Tally ee init: "); Serial.println(tally_ee_init);
+  */
+  
+  sprintf(buf_tx, "%s", outgoing);
+  sprintf(buf_rx, "%s", incoming);
+
   sprintf(buf_bb, "%s", bb);
   sprintf(buf_cc, "%s", cc);
   sprintf(buf_dd, "%s", dd);
   sprintf(buf_ee, "%s", ee);
-  sprintf(buf_name, "%s", name);
-  sprintf(buf_localAddress, "%x", localAddress);    // byte
-  sprintf(buf_mode, "%s", mode);                    // string
-  sprintf(buf_rxAdr, "%x", destination);            // byte
-  sprintf(buf_txAdr, "%s", txAdr);
-  sprintf(buf_counterTallys, "%d", counterTallys);
+  sprintf(buf_lost, "%s", lost);
+  sprintf(buf_rssi_bb, "%s", rssi_bb);
+  sprintf(buf_rssi_cc, "%s", rssi_cc);
+  sprintf(buf_rssi_dd, "%s", rssi_dd);
+  sprintf(buf_rssi_ee, "%s", rssi_ee);
 
-  if ((millis() - lastGetBattery > 5000) || (initBattery == HIGH)) {
-    snprintf(buf_bV, 5, "%f", BL.getBatteryVolts());
-    snprintf(buf_bL, 4, "%d", BL.getBatteryChargeLevel());
+  sprintf(buf_localAddress, "%x", localAddress);          // byte
+  sprintf(buf_mode, "%s", mode_s);                        // string
+  sprintf(buf_rxAdr, "%s", string_destinationAddress);            
+  sprintf(buf_txAdr, "%s", tx_adr);
+  sprintf(buf_counterTallys, "%d", counterTallys);        // int
+
+  buf_rssi_bb_int = atoi(buf_rssi_bb);
+  buf_rssi_cc_int = atoi(buf_rssi_cc);
+  buf_rssi_dd_int = atoi(buf_rssi_dd);
+  buf_rssi_ee_int = atoi(buf_rssi_ee);
+
+  if ((millis() - lastGetBattery > 10000) || (initBattery == HIGH)) {
+    bV = BL.getBatteryVolts();
+    bL = BL.getBatteryChargeLevel();
+    snprintf(buf_bV, 5, "%f", bV);
+    snprintf(buf_bL, 4, "%d", bL);
     initBattery = LOW;
     lastGetBattery = millis();
   }
 
   u8g2.clearBuffer();					      // clear the internal memory
+
+  //Battery Level Indicator
   u8g2.setFont(u8g2_font_6x13_tf);
-  u8g2.drawStr(0,10,buf_name);	    // write something to the internal memory
-  u8g2.drawStr(62,10,buf_bV);
-  u8g2.drawStr(88,10,"V");
-  u8g2.drawStr(100,10,buf_bL);
-  u8g2.drawStr(121,10,"%");
-  u8g2.drawStr(0,22,"Adr:");
-  u8g2.drawStr(30,22,buf_localAddress);
-  u8g2.drawStr(62,22,buf_mode);
-  u8g2.drawStr(0,34,"TxD:");
-  u8g2.drawStr(30,34,buf_tx);
-  u8g2.drawStr(117,34,buf_rxAdr);
-  u8g2.drawStr(0,46,"RxD:");
-  u8g2.drawStr(30,46,buf_rx);
-  u8g2.drawStr(117,46,buf_txAdr);
-  u8g2.drawStr(0,58,"Syn:");
-  u8g2.drawStr(30,58,buf_bb);
-  u8g2.drawStr(55,58,buf_cc);
-  u8g2.drawStr(80,58,buf_dd);
-  u8g2.drawStr(105,58,buf_ee);
-  u8g2.drawStr(121,58,buf_counterTallys);
+  u8g2.setDrawColor(1);
+  u8g2.drawStr(67,12,buf_bL);
+  u8g2.drawStr(87,12,"%");
+  //u8g2.drawStr(67,25,buf_bV);       // write something to the internal memory
+  //u8g2.drawStr(87,25,"V");
+
+  //TxD and RxD Indicator
+  u8g2.setFont(u8g2_font_6x10_tf);
+  u8g2.setDrawColor(1);
+  u8g2.drawStr(0,26,"TxD:");
+  u8g2.drawStr(30,26,buf_tx);
+  u8g2.drawStr(115,26,buf_rxAdr);
+  u8g2.drawStr(0,36,"RxD:");
+  u8g2.drawStr(30,36,buf_rx);
+  u8g2.drawStr(115,36,buf_txAdr);
+  
+  //Address Indicator
+  u8g2.setFont(u8g2_font_6x13_tf);
+  u8g2.setDrawColor(1);
+  u8g2.drawXBM(20, 3, lineWidth, lineHeight, line1);
+  u8g2.setDrawColor(1);
+  u8g2.drawStr(3,12,buf_localAddress);
+
+  //Mode Indicator
+  u8g2.setFont(u8g2_font_6x13_tf);
+  u8g2.setDrawColor(1);
+  u8g2.drawXBM(51, 3, lineWidth, lineHeight, line1);
+  u8g2.setDrawColor(1);
+  u8g2.drawStr(29,12,buf_mode);
+
+  u8g2.setFont(u8g2_font_6x13_tf);
+  u8g2.setDrawColor(0);
+
+  //Battery Indicator
+  if ((bL >= 0) && (bL <= 10)) {
+    batteryAttention = HIGH;
+  }
+  if ((bL >= 11) && (bL <= 25)) {
+    u8g2.drawXBM(99, 0, batteryWidth, batteryHeight, battery1);
+    batteryAttention = LOW;
+  }
+  if ((bL >= 26) && (bL <= 50)) {
+    u8g2.drawXBM(99, 0, batteryWidth, batteryHeight, battery2);
+    batteryAttention = LOW;
+    }
+  if ((bL >= 51) && (bL <= 75)) {
+    u8g2.drawXBM(99, 0, batteryWidth, batteryHeight, battery3);
+    batteryAttention = LOW;
+  }
+  if ((bL >= 76) && (bL <= 100)) {
+    u8g2.drawXBM(99, 0, batteryWidth, batteryHeight, battery4);
+    batteryAttention = LOW;
+  }
+
+  //Battery Attention Indicator
+  if ((batteryAttention == HIGH)) {
+    batteryAttention = !batteryAttention;
+    if ((batteryAttention = HIGH)) {
+      u8g2.drawXBM(99, 0, batteryWidth, batteryHeight, battery0);
+    }
+    if ((batteryAttention = LOW)) {
+      u8g2.drawXBM(99, 0, batteryWidth, batteryHeight, battery1);
+    } 
+  }
+
+  //Signal Strength Indicator bb
+  if (((tally_bb == HIGH) || (tally_bb_init == HIGH)) && (buf_rssi_bb_int <= -80) && (tx_adr_bb == "bb") && ((incoming_bb == "off") || (incoming_bb == "con"))) {
+    u8g2.drawXBM(8, 46, signalWidth, signalHeight, signal1);
+  }
+  if (((tally_bb == HIGH) || (tally_bb_init == HIGH)) && (buf_rssi_bb_int <= -60 ) && (buf_rssi_bb_int >= -79) && (tx_adr_bb == "bb") && ((incoming_bb == "off") || (incoming_bb == "con"))) {
+    u8g2.drawXBM(8, 46, signalWidth, signalHeight, signal2);
+  }
+  if (((tally_bb == HIGH) || (tally_bb_init == HIGH)) && (buf_rssi_bb_int <= -40 ) && (buf_rssi_bb_int >= -59) && (tx_adr_bb == "bb") && ((incoming_bb == "off") || (incoming_bb == "con"))) {
+    u8g2.drawXBM(8, 46, signalWidth, signalHeight, signal3);
+  }
+  if (((tally_bb == HIGH) || (tally_bb_init == HIGH)) && (buf_rssi_bb_int <= -20 ) && (buf_rssi_bb_int >= -39) && (tx_adr_bb == "bb") && ((incoming_bb == "off") || (incoming_bb == "con"))) {
+    u8g2.drawXBM(8, 46, signalWidth, signalHeight, signal4);
+  }
+  if (((tally_bb == HIGH) || (tally_bb_init == HIGH)) && (buf_rssi_bb_int >= -19) && (tx_adr_bb == "bb") && ((incoming_bb == "off") || (incoming_bb == "con"))) {
+    u8g2.drawXBM(8, 46, signalWidth, signalHeight, signal5);
+  }
+
+  //Signal Strength Indicator cc
+  if (((tally_cc == HIGH) || (tally_cc_init == HIGH)) && (buf_rssi_cc_int <= -80) && (tx_adr_cc == "cc") && ((incoming_cc == "off") || (incoming_cc == "con"))) {
+    u8g2.drawXBM(40, 46, signalWidth, signalHeight, signal1);
+  }
+  if (((tally_cc == HIGH) || (tally_cc_init == HIGH)) && (buf_rssi_cc_int <= -60 ) && (buf_rssi_cc_int >= -79) && (tx_adr_cc == "cc") && ((incoming_cc == "off") || (incoming_cc == "con"))) {
+    u8g2.drawXBM(40, 46, signalWidth, signalHeight, signal2);
+  }
+  if (((tally_cc == HIGH) || (tally_cc_init == HIGH)) && (buf_rssi_cc_int <= -40 ) && (buf_rssi_cc_int >= -59) && (tx_adr_cc == "cc") && ((incoming_cc == "off") || (incoming_cc == "con"))) {
+    u8g2.drawXBM(40, 46, signalWidth, signalHeight, signal3);
+  }
+  if (((tally_cc == HIGH) || (tally_cc_init == HIGH)) && (buf_rssi_cc_int <= -20 ) && (buf_rssi_cc_int >= -39) && (tx_adr_cc == "cc") && ((incoming_cc == "off") || (incoming_cc == "con"))) {
+    u8g2.drawXBM(40, 46, signalWidth, signalHeight, signal4);
+  }
+  if (((tally_cc == HIGH) || (tally_cc_init == HIGH)) && (buf_rssi_cc_int >= -19) && (tx_adr_cc == "cc") && ((incoming_cc == "off") || (incoming_cc == "con"))) {
+    u8g2.drawXBM(40, 46, signalWidth, signalHeight, signal5);
+  }
+
+  //Signal Strength Indicator dd
+  if (((tally_dd == HIGH) || (tally_dd_init == HIGH)) && (buf_rssi_dd_int <= -80) && (tx_adr_dd == "dd") && ((incoming_dd == "off") || (incoming_dd == "con"))) {
+    u8g2.drawXBM(72, 46, signalWidth, signalHeight, signal1);
+  }
+  if (((tally_dd == HIGH) || (tally_dd_init == HIGH)) && (buf_rssi_dd_int <= -60 ) && (buf_rssi_dd_int >= -79) && (tx_adr_dd == "dd") && ((incoming_dd == "off") || (incoming_dd == "con"))) {
+    u8g2.drawXBM(72, 46, signalWidth, signalHeight, signal2);
+  }
+  if (((tally_dd == HIGH) || (tally_dd_init == HIGH)) && (buf_rssi_dd_int <= -40 ) && (buf_rssi_dd_int >= -59) && (tx_adr_dd == "dd") && ((incoming_dd == "off") || (incoming_dd == "con"))) {
+    u8g2.drawXBM(72, 46, signalWidth, signalHeight, signal3);
+  }
+  if (((tally_dd == HIGH) || (tally_dd_init == HIGH)) && (buf_rssi_dd_int <= -20 ) && (buf_rssi_dd_int >= -39) && (tx_adr_dd == "dd") && ((incoming_dd == "off") || (incoming_dd == "con"))) {
+    u8g2.drawXBM(72, 46, signalWidth, signalHeight, signal4);
+  }
+  if (((tally_dd == HIGH) || (tally_dd_init == HIGH)) && (buf_rssi_dd_int >= -19) && (tx_adr_dd == "dd") && ((incoming_dd == "off") || (incoming_dd == "con"))) {
+    u8g2.drawXBM(72, 46, signalWidth, signalHeight, signal5);
+  }
+
+  //Signal Strength Indicator ee
+  if (((tally_ee == HIGH) || (tally_ee_init == HIGH)) && (buf_rssi_ee_int <= -80) && (tx_adr_ee == "ee") && ((incoming_ee == "off") || (incoming_ee == "con"))) {
+    u8g2.drawXBM(104, 46, signalWidth, signalHeight, signal1);
+  }
+  if (((tally_ee == HIGH) || (tally_ee_init == HIGH)) && (buf_rssi_ee_int <= -60 ) && (buf_rssi_ee_int >= -79) && (tx_adr_ee == "ee") && ((incoming_ee == "off") || (incoming_ee == "con"))) {
+    u8g2.drawXBM(104, 46, signalWidth, signalHeight, signal2);
+  }
+  if (((tally_ee == HIGH) || (tally_ee_init == HIGH)) && (buf_rssi_ee_int <= -40 ) && (buf_rssi_ee_int >= -59) && (tx_adr_ee == "ee") && ((incoming_ee == "off") || (incoming_ee == "con"))) {
+    u8g2.drawXBM(104, 46, signalWidth, signalHeight, signal3);
+  }
+  if (((tally_ee == HIGH) || (tally_ee_init == HIGH)) && (buf_rssi_ee_int <= -20 ) && (buf_rssi_ee_int >= -39) && (tx_adr_ee == "ee") && ((incoming_ee == "off") || (incoming_ee == "con"))) {
+    u8g2.drawXBM(104, 46, signalWidth, signalHeight, signal4);
+  }
+  if (((tally_ee == HIGH) || (tally_ee_init == HIGH)) && (buf_rssi_ee_int >= -19) && (tx_adr_ee == "ee") && ((incoming_ee == "off") || (incoming_ee == "con"))) {
+    u8g2.drawXBM(104, 46, signalWidth, signalHeight, signal5);
+  }
+
+  //Signal Lost Indicator bb
+  if ((tally_bb == LOW) && (tally_bb_init == HIGH)) {
+    u8g2.setDrawColor(1);
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(0,47,buf_rssi_bb);
+    u8g2.drawStr(6,55,buf_bb);
+    u8g2.setFont(u8g2_font_10x20_tf);
+    u8g2.drawStr(19,47,buf_lost);
+  }
+
+  //Signal Lost Indicator cc
+  if ((tally_cc == LOW) && (tally_cc_init == HIGH)) {
+    u8g2.setDrawColor(1);
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(32,47,buf_rssi_cc);
+    u8g2.drawStr(38,55,buf_cc);
+    u8g2.setFont(u8g2_font_10x20_tf);
+    u8g2.drawStr(51,47,buf_lost);
+  }
+
+  //Signal Lost Indicator dd
+  if ((tally_dd == LOW) && (tally_dd_init == HIGH)) {
+    u8g2.setDrawColor(1);
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(64,47,buf_rssi_dd);
+    u8g2.drawStr(70,55,buf_dd);
+    u8g2.setFont(u8g2_font_10x20_tf);
+    u8g2.drawStr(83,47,buf_lost);
+  }
+
+  //Signal Lost Indicator ee
+  if ((tally_ee == LOW) && (tally_ee_init == HIGH)) {
+    u8g2.setDrawColor(1);
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(96,47,buf_rssi_ee);
+    u8g2.drawStr(102,55,buf_ee);
+    u8g2.setFont(u8g2_font_10x20_tf);
+    u8g2.drawStr(115,47,buf_lost);
+  }
+
+  //Signal High Indicator bb
+  if ((tally_bb == HIGH) && (tally_bb_init == HIGH)) {
+    u8g2.setDrawColor(1);
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(0,47,buf_rssi_bb);
+    u8g2.drawStr(6,55,buf_bb);
+  }
+
+  //Signal High Indicator cc
+  if ((tally_cc == HIGH) && (tally_cc_init == HIGH)) {
+    u8g2.setDrawColor(1);
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(32,47,buf_rssi_cc);
+    u8g2.drawStr(38,55,buf_cc);
+  }
+
+  //Signal High Indicator dd
+  if ((tally_dd == HIGH) && (tally_dd_init == HIGH)) {
+    u8g2.setDrawColor(1);
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(64,47,buf_rssi_dd);
+    u8g2.drawStr(70,55,buf_dd);
+  }
+
+  //Signal High Indicator ee
+  if ((tally_ee == HIGH) && (tally_ee_init == HIGH)) {
+    u8g2.setDrawColor(1);
+    u8g2.setFont(u8g2_font_6x10_tf);
+    u8g2.drawStr(96,47,buf_rssi_ee);
+    u8g2.drawStr(102,55,buf_ee);
+  }
+
   u8g2.sendBuffer();
 
+  lastDisplayPrint = millis();
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -393,6 +657,9 @@ void setup() {
   printLora(1);
   delay(3000);
 
+  emptyDisplay();
+  printDisplay();
+
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -403,80 +670,97 @@ void loop() {
   if ((mode == "discover")) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xff;
-    String message = "dis-anyrec?";         // Send a message
-    sendMessage(message);
-    printDisplay(message, "", "");
-    Serial.println("TxD: " + message);
+    string_destinationAddress = "ff";
+    outgoing = "dis-anyrec?";         // Send a message
+    sendMessage(outgoing);
+    printDisplay();
+    Serial.println("TxD: " + outgoing);
     digitalWrite(LED_PIN_INTERNAL, LOW);
     lastOfferTime = millis();
+    lastOfferTimeRef = millis();
     lastDiscoverTimebb = millis();
     lastDiscoverTimecc = millis();
     lastDiscoverTimedd = millis();
     lastDiscoverTimeee = millis();
     mode = "offer";
+    mode_s = "off";
+    emptyDisplay();
   }
 
   // Offer Mode
   while (mode == "offer") {
-    String rx_adr, tx_adr, incoming, rssi, snr;
     onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
-    
-    // Print Incoming and RxD und TxD Adress
-    if ((incoming != "") || (millis() - lastTestTime > 1500)) {
-      printDisplay("", incoming, tx_adr);
-      lastTestTime = millis();
-    }
-    if (incoming != "") {
-      Serial.println("RxD: " + incoming);
-      Serial.print("RxD_Adr: "); Serial.print(rx_adr); Serial.print(" TxD_Adr: "); Serial.println(tx_adr);
-    }
 
-    if ((incoming == "off") && (tx_adr == "bb")) {
+    if ((incoming == "off") && (tx_adr == "bb") && (tally_bb == LOW)) {
       tally_bb = HIGH;
       tally_bb_init = HIGH;
-      bb = "bb";
+      incoming_bb = incoming;
+      tx_adr_bb = tx_adr;
+      rssi_bb = rssi;
       counterTallys++;
+      printDisplay();
       lastOfferTime = millis();
       lastOfferTimeEnd = millis();
+      emptyDisplay();
     }
-    if ((incoming == "off") && (tx_adr == "cc")) {
+    if ((incoming == "off") && (tx_adr == "cc") && (tally_cc == LOW)) {
       tally_cc = HIGH;
       tally_cc_init = HIGH;
-      cc = "cc";
+      incoming_cc = incoming;
+      tx_adr_cc = tx_adr;
+      rssi_cc = rssi;
       counterTallys++;
+      printDisplay();
       lastOfferTime = millis();
       lastOfferTimeEnd = millis();
+      emptyDisplay();
     }
-    if ((incoming == "off") && (tx_adr == "dd")) {
+    if ((incoming == "off") && (tx_adr == "dd") && (tally_dd == LOW)) {
       tally_dd = HIGH;
       tally_dd_init = HIGH;
-      dd = "dd";
+      incoming_dd = incoming;
+      tx_adr_dd = tx_adr;
+      rssi_dd = rssi;
       counterTallys++;
+      printDisplay();
       lastOfferTime = millis();
       lastOfferTimeEnd = millis();
+      emptyDisplay();
     }
-    if ((incoming == "off") && (tx_adr == "ee")) {
+    if ((incoming == "off") && (tx_adr == "ee") && (tally_ee == LOW)) {
       tally_ee = HIGH;
       tally_ee_init = HIGH;
-      ee = "ee";
+      incoming_ee = incoming;
+      tx_adr_ee = tx_adr;
+      rssi_ee = rssi;
       counterTallys++;
+      printDisplay();
       lastOfferTime = millis();
       lastOfferTimeEnd = millis();
+      emptyDisplay();
+    }
+
+    if ((millis() - lastOfferTimeRef > 2500)) {      // every 2.5 s clear display
+      emptyDisplay();
+      printDisplay();
+      lastOfferTimeRef = millis();
     }
 
     if ((millis() - lastOfferTime > 7500) && ((counterTallys >= 0))) {      // every 7.5 s on discover message
       mode = "discover"; 
+      mode_s = "dis";
       break;
     }
 
     if ((millis() - lastOfferTimeEnd > 60000) && (counterTallys >= 1)) {    // after 60 s of no new receivers, request mode
       mode = "request"; 
+      mode_s = "req";
       break;
     }
   }
   
   // Request Mode
-  if ((mode == "request") && (millis() - lastAnalogReadTime > 250)) {
+  if ((mode == "request") && (millis() - lastAnalogReadTime > 100)) {
 
     gpioV1 = analogRead(gpioP1);
     gpioV2 = analogRead(gpioP2);
@@ -494,135 +778,153 @@ void loop() {
     if (gpioV1Cal > 2.0 && tally_bb == HIGH && gpioC1 == HIGH) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
       destination = 0xbb;
-      String message = "req-high";         // Send a message
-      sendMessage(message);
-      printDisplay(message, "", "");
-      Serial.println("TxD: " + message);
+      string_destinationAddress = "bb";
+      outgoing = "req-high";         // Send a message
+      sendMessage(outgoing);
+      printDisplay();
+      Serial.println("TxD: " + outgoing);
       gpioC1 = !gpioC1;
       mode = "acknowledge";
+      mode_s = "ack";
       lastAckTime = millis();
       digitalWrite(LED_PIN_INTERNAL, LOW);
+      emptyDisplay();
     }
 
     if (gpioV1Cal < 2.0 && tally_bb == HIGH && gpioC1 == LOW) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
       destination = 0xbb;
-      String message = "req-low";         // Send a message
-      sendMessage(message);
-      printDisplay(message, "", "");
-      Serial.println("TxD: " + message);
+      string_destinationAddress = "bb";
+      outgoing = "req-low";         // Send a message
+      sendMessage(outgoing);
+      printDisplay();
+      Serial.println("TxD: " + outgoing);
       gpioC1 = !gpioC1;
       mode = "acknowledge";
+      mode_s = "ack";
       lastAckTime = millis();
       digitalWrite(LED_PIN_INTERNAL, LOW);
+      emptyDisplay();
     }
 
     if (gpioV2Cal > 2.0 && tally_cc == HIGH && gpioC2 == HIGH) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
       destination = 0xcc;
-      String message = "req-high";         // Send a message
-      sendMessage(message);
-      printDisplay(message, "", "");
-      Serial.println("TxD: " + message);
+      string_destinationAddress = "cc";
+      outgoing = "req-high";         // Send a message
+      sendMessage(outgoing);
+      printDisplay();
+      Serial.println("TxD: " + outgoing);
       gpioC2 = !gpioC2;
       mode = "acknowledge";
+      mode_s = "ack";
       lastAckTime = millis();
       digitalWrite(LED_PIN_INTERNAL, LOW);
+      emptyDisplay();
     }
 
     if (gpioV2Cal < 2.0 && tally_cc == HIGH && gpioC2 == LOW) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
       destination = 0xcc;
-      String message = "req-low";         // Send a message
-      sendMessage(message);
-      printDisplay(message, "", "");
-      Serial.println("TxD: " + message);
+      string_destinationAddress = "cc";
+      outgoing = "req-low";         // Send a message
+      sendMessage(outgoing);
+      printDisplay();
+      Serial.println("TxD: " + outgoing);
       gpioC2 = !gpioC2;
       mode = "acknowledge";
+      mode_s = "ack";
       lastAckTime = millis();
       digitalWrite(LED_PIN_INTERNAL, LOW);
+      emptyDisplay();
     }
-    lastAnalogReadTime = millis();
 
     if (gpioV3Cal > 2.0 && tally_dd == HIGH && gpioC3 == HIGH) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
       destination = 0xdd;
-      String message = "req-high";         // Send a message
-      sendMessage(message);
-      printDisplay(message, "", "");
-      Serial.println("TxD: " + message);
+      string_destinationAddress = "dd";
+      outgoing = "req-high";         // Send a message
+      sendMessage(outgoing);
+      printDisplay();
+      Serial.println("TxD: " + outgoing);
       gpioC3 = !gpioC3;
       mode = "acknowledge";
+      mode_s = "ack";
       lastAckTime = millis();
       digitalWrite(LED_PIN_INTERNAL, LOW);
+      emptyDisplay();
     }
 
     if (gpioV3Cal < 2.0 && tally_dd == HIGH && gpioC3 == LOW) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
       destination = 0xdd;
-      String message = "req-low";         // Send a message
-      sendMessage(message);
-      printDisplay(message, "", "");
-      Serial.println("TxD: " + message);
+      string_destinationAddress = "dd";
+      outgoing = "req-low";         // Send a message
+      sendMessage(outgoing);
+      printDisplay();
+      Serial.println("TxD: " + outgoing);
       gpioC3 = !gpioC3;
       mode = "acknowledge";
+      mode_s = "ack";
       lastAckTime = millis();
       digitalWrite(LED_PIN_INTERNAL, LOW);
+      emptyDisplay();
     }
 
     if (gpioV4Cal > 2.0 && tally_ee == HIGH && gpioC4 == HIGH) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
       destination = 0xee;
-      String message = "req-high";         // Send a message
-      sendMessage(message);
-      printDisplay(message, "", "");
-      Serial.println("TxD: " + message);
+      string_destinationAddress = "ee";
+      outgoing = "req-high";         // Send a message
+      sendMessage(outgoing);
+      printDisplay();
+      Serial.println("TxD: " + outgoing);
       gpioC4 = !gpioC4;
       mode = "acknowledge";
+      mode_s = "ack";
       lastAckTime = millis();
       digitalWrite(LED_PIN_INTERNAL, LOW);
+      emptyDisplay();
     }
 
     if (gpioV4Cal < 2.0 && tally_ee == HIGH && gpioC4 == LOW) {
       digitalWrite(LED_PIN_INTERNAL, HIGH);
       destination = 0xee;
-      String message = "req-low";         // Send a message
-      sendMessage(message);
-      printDisplay(message, "", "");
-      Serial.println("TxD: " + message);
+      string_destinationAddress = "ee";
+      outgoing = "req-low";         // Send a message
+      sendMessage(outgoing);
+      printDisplay();
+      Serial.println("TxD: " + outgoing);
       gpioC4 = !gpioC4;
       mode = "acknowledge";
+      mode_s = "ack";
       lastAckTime = millis();
       digitalWrite(LED_PIN_INTERNAL, LOW);
+      emptyDisplay();
     }
     lastAnalogReadTime = millis();
   }
 
   // Acknowledge Mode
   while (mode == "acknowledge") {
-    String rx_adr, tx_adr, incoming, rssi, snr;
-    onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
+    onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it    
     
-    // Print Incoming and RxD und TxD Adress
-    if ((incoming != "") || (millis() - lastTestTime > 1500)) {
-      printDisplay("", incoming, tx_adr);
-      lastTestTime = millis();
-    }
-    if (incoming != "") {
-      Serial.println("RxD: " + incoming);
-      Serial.print("RxD_Adr: "); Serial.print(rx_adr); Serial.print(" TxD_Adr: "); Serial.println(tx_adr);
-    }
-
     // Back to Request Mode
     if ((incoming == "ack") && ((tx_adr == "bb") || (tx_adr == "cc") || (tx_adr == "dd") ||  (tx_adr == "ee"))) {
+      printDisplay();
       mode = "request";
+      mode_s = "req";
+      emptyDisplay();
       break;
     }
 
     // Toggel and Resend Message, if ACK not arrived after 2.5 secounds
     if ((millis() - lastAckTime > 2500) && (counterSend < counterSendMax)) {
+      emptyDisplay();
       mode = "request";
+      mode_s = "req";
       counterSend++;
+      printDisplay();
       gpioC1 = !gpioC1;
       gpioC2 = !gpioC2;
       gpioC3 = !gpioC3;
@@ -632,8 +934,11 @@ void loop() {
 
     // Aborting the routine after 3 failed trys
     if ((millis() - lastAckTime > 10000) && (counterSend == counterSendMax)) {
+      emptyDisplay();
       mode = "request";
+      mode_s = "req";
       counterSend = 0;
+      printDisplay();
       break;
     }
     
@@ -643,192 +948,180 @@ void loop() {
   if ((millis() - lastDiscoverTimebb > 180000) && ((tally_bb == HIGH) || (tally_bb_init == HIGH))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xbb;
-    printDisplay("", "", ""); 
-    String message = "con-rec?";         // Send a message
-    sendMessage(message);
-    printDisplay(message, "", "");
-    Serial.println("TxD: " + message);
+    string_destinationAddress = "bb";
+    outgoing = "con-rec?";         // Send a message
+    sendMessage(outgoing);
+    printDisplay();
+    Serial.println("TxD: " + outgoing);
     digitalWrite(LED_PIN_INTERNAL, LOW);
     lastDiscoverTimebb = millis();
     lastControlTime = millis();
     mode = "control";
+    mode_s = "con";
+    emptyDisplay();
 
     while (mode == "control") {
-      String rx_adr, tx_adr, incoming, rssi, snr;
       onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
-      
-      if ((incoming != "") || (millis() - lastTestTime > 1500)) {
-        printDisplay("", incoming, tx_adr);
-        lastTestTime = millis();
-      }
-      if (incoming != "") {
-        Serial.println("RxD: " + incoming);
-        Serial.print("RxD_Adr: "); Serial.print(rx_adr); Serial.print(" TxD_Adr: "); Serial.println(tx_adr);
-      }
 
       if ((incoming == "con") && (tx_adr == "bb")) {
         tally_bb = HIGH;
-        bb = "bb";
+        incoming_bb = incoming;         // reguster values for rssi measuring
+        tx_adr_bb = tx_adr;
+        rssi_bb = rssi;
+        printDisplay();
         mode = "request";
+        mode_s = "req";
+        emptyDisplay();
         break;
       }
 
       if (millis() - lastControlTime > 2500) {
         tally_bb = LOW;
-        bb = "";
         counterTallys--;
+        printDisplay();
         mode = "request"; 
+        mode_s = "req";
+        emptyDisplay();
         break;
       }
     }
-  Serial.print("Tally: ");Serial.print(tally_bb);Serial.print(tally_cc);Serial.print(tally_dd);Serial.println(tally_ee);
-  Serial.print("Tally Init: ");Serial.print(tally_bb_init);Serial.print(tally_cc_init);Serial.print(tally_dd_init);Serial.println(tally_ee_init);
   }
   
   // Control Mode CC after discover and 3 minutes 
   if ((millis() - lastDiscoverTimecc > 190000) && ((tally_cc == HIGH) || (tally_cc_init == HIGH))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xcc;
-    printDisplay("", "", ""); 
-    String message = "con-rec?";         // Send a message
-    sendMessage(message);
-    printDisplay(message, "", "");
-    Serial.println("TxD: " + message);
+    string_destinationAddress = "cc";
+    outgoing = "con-rec?";         // Send a message
+    sendMessage(outgoing);
+    printDisplay();
+    Serial.println("TxD: " + outgoing);
     digitalWrite(LED_PIN_INTERNAL, LOW);
     lastDiscoverTimecc = millis();
     lastControlTime = millis();
     mode = "control";
+    mode_s = "con";
+    emptyDisplay();
 
     while (mode == "control") {
-      String rx_adr, tx_adr, incoming, rssi, snr;
       onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
-      
-      if ((incoming != "") || (millis() - lastTestTime > 1500)) {
-        printDisplay("", incoming, tx_adr);
-        lastTestTime = millis();
-      }
-      if (incoming != "") {
-        Serial.println("RxD: " + incoming);
-        Serial.print("RxD_Adr: "); Serial.print(rx_adr); Serial.print(" TxD_Adr: "); Serial.println(tx_adr);
-      }
       
       if ((incoming == "con") && (tx_adr == "cc")) {
         tally_cc = HIGH;
-        cc = "cc";
+        incoming_cc = incoming;
+        tx_adr_cc = tx_adr;
+        rssi_cc = rssi;
+        printDisplay();
         mode = "request";
+        mode_s = "req";
+        emptyDisplay();
         break;
       }
 
       if (millis() - lastControlTime > 2500) {
         tally_cc = LOW;
-        cc = "";
         counterTallys--;
+        printDisplay();
         mode = "request"; 
+        mode_s = "req";
+        emptyDisplay();
         break;
       }
     }
-  Serial.print("Tally: ");Serial.print(tally_bb);Serial.print(tally_cc);Serial.print(tally_dd);Serial.println(tally_ee);
-  Serial.print("Tally Init: ");Serial.print(tally_bb_init);Serial.print(tally_cc_init);Serial.print(tally_dd_init);Serial.println(tally_ee_init);
   }
 
   // Control Mode DD after discover and 3 minutes 
   if ((millis() - lastDiscoverTimedd > 200000) && ((tally_dd == HIGH) || (tally_dd_init == HIGH))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xdd;
-    printDisplay("", "", ""); 
-    String message = "con-rec?";         // Send a message
-    sendMessage(message);
-    printDisplay(message, "", "");
-    Serial.println("TxD: " + message);
+    string_destinationAddress = "dd";
+    outgoing = "con-rec?";         // Send a message
+    sendMessage(outgoing);
+    printDisplay();
+    Serial.println("TxD: " + outgoing);
     digitalWrite(LED_PIN_INTERNAL, LOW);
     lastDiscoverTimedd = millis();
     lastControlTime = millis();
     mode = "control";
+    mode_s = "con";
+    emptyDisplay();
 
     while (mode == "control") {
-      String rx_adr, tx_adr, incoming, rssi, snr;
       onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
-      
-      if ((incoming != "") || (millis() - lastTestTime > 1500)) {
-        printDisplay("", incoming, tx_adr);
-        lastTestTime = millis();
-      }
-      if (incoming != "") {
-        Serial.println("RxD: " + incoming);
-        Serial.print("RxD_Adr: "); Serial.print(rx_adr); Serial.print(" TxD_Adr: "); Serial.println(tx_adr);
-      }
       
       if ((incoming == "con") && (tx_adr == "dd")) {
         tally_dd = HIGH;
-        dd = "dd";
+        incoming_dd = incoming;
+        tx_adr_dd = tx_adr;
+        rssi_dd = rssi;
+        printDisplay();
         mode = "request";
+        mode_s = "req";
+        emptyDisplay();
         break;
       }
 
       if (millis() - lastControlTime > 2500) {
         tally_dd = LOW;
-        dd = "";
         counterTallys--;
+        printDisplay();
         mode = "request"; 
+        mode_s = "req";
+        emptyDisplay();
         break;
       }
     }
-  Serial.print("Tally: ");Serial.print(tally_bb);Serial.print(tally_cc);Serial.print(tally_dd);Serial.println(tally_ee);
-  Serial.print("Tally Init: ");Serial.print(tally_bb_init);Serial.print(tally_cc_init);Serial.print(tally_dd_init);Serial.println(tally_ee_init);
   }
 
   // Control Mode EE after discover and 3 minutes 
   if ((millis() - lastDiscoverTimeee > 210000) && ((tally_ee == HIGH) || (tally_ee_init == HIGH))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xee;
-    printDisplay("", "", ""); 
-    String message = "con-rec?";         // Send a message
-    sendMessage(message);
-    printDisplay(message, "", "");
-    Serial.println("TxD: " + message);
+    string_destinationAddress = "ee";
+    outgoing = "con-rec?";         // Send a message
+    sendMessage(outgoing);
+    printDisplay();
+    Serial.println("TxD: " + outgoing);
     digitalWrite(LED_PIN_INTERNAL, LOW);
     lastDiscoverTimeee = millis();
     lastControlTime = millis();
     mode = "control";
+    mode_s = "con";
+    emptyDisplay();
 
     while (mode == "control") {
-      String rx_adr, tx_adr, incoming, rssi, snr;
       onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
-      
-      if ((incoming != "") || (millis() - lastTestTime > 1500)) {
-        printDisplay("", incoming, tx_adr);
-        lastTestTime = millis();
-      }
-      if (incoming != "") {
-        Serial.println("RxD: " + incoming);
-        Serial.print("RxD_Adr: "); Serial.print(rx_adr); Serial.print(" TxD_Adr: "); Serial.println(tx_adr);
-      }
       
       if ((incoming == "con") && (tx_adr == "ee")) {
         tally_ee = HIGH;
-        ee = "ee";
+        incoming_ee = incoming;
+        tx_adr_ee = tx_adr;
+        rssi_ee = rssi;
+        printDisplay();
         mode = "request";
+        mode_s = "req";
+        emptyDisplay();
         break;
       }
 
       if (millis() - lastControlTime > 2500) {
         tally_ee = LOW;
-        ee = "";
+        printDisplay();
         counterTallys--;
         mode = "request"; 
+        mode_s = "req";
+        emptyDisplay();
         break;
       }
     }
-  Serial.print("Tally: ");Serial.print(tally_bb);Serial.print(tally_cc);Serial.print(tally_dd);Serial.println(tally_ee);
-  Serial.print("Tally Init: ");Serial.print(tally_bb_init);Serial.print(tally_cc_init);Serial.print(tally_dd_init);Serial.println(tally_ee_init);
   }
 
   // Function Print Display if nothing work
-  if (millis() - lastDisplayPrint > 10000) {
-    printDisplay("", "", "");
-    lastDisplayPrint = millis();
-  }
+  if (millis() - lastDisplayPrint > 5000) {
 
+    printDisplay();
+  }
+  
 }
 
 //////////////////////////////////////////////////////////////////////
