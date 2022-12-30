@@ -52,7 +52,6 @@ char buf_rxAdr[5];
 char buf_txAdr[5];
 char buf_bV[5];
 char buf_bL[4];
-char buf_counterTallys[4];
 char buf_oledInit[12];
 char buf_loraInit[12];
 char buf_outputInit[12];
@@ -61,16 +60,18 @@ char buf_rssi_cc[4];
 char buf_rssi_dd[4];
 char buf_rssi_ee[4];
 
-byte msgCount = 0;            // Count of outgoing messages
-byte localAddress = 0xaa;     // Address of this device            ///////////////CCCHHHAAANNNGGGEEE////////////// 
-String string_localAddress = "aa";                                 ///////////////CCCHHHAAANNNGGGEEE//////////////                            
-byte destination = 0xff;      // Destination to send to              
+byte msgKey1 = 0x2a;                      // Key of outgoing messages
+byte msgKey2 = 0x56;
+byte msgCount = 0;                        // Count of outgoing messages
+byte localAddress = 0xaa;                 // Address of this device   ///////////////CCCHHHAAANNNGGGEEE////////////// 
+String string_localAddress = "aa";                                    ///////////////CCCHHHAAANNNGGGEEE//////////////                            
+byte destination = 0xff;                  // Destination to send to              
 String string_destinationAddress = "ff";            
-long lastDiscoverTimebb = 0;    // Last send time
-long lastDiscoverTimecc = 0;    // Last send time
-long lastDiscoverTimedd = 0;    // Last send time
-long lastDiscoverTimeee = 0;    // Last send time
-long lastOfferTime = 0;       // Last send time
+long lastDiscoverTimebb = 0;              // Last send time
+long lastDiscoverTimecc = 0;              // Last send time
+long lastDiscoverTimedd = 0;              // Last send time
+long lastDiscoverTimeee = 0;              // Last send time
+long lastOfferTime = 0;                   // Last send time
 long lastOfferTimeRef = 0;
 long lastOfferTimeEnd = 0;
 long lastControlTime = 0;
@@ -84,7 +85,6 @@ long lastDisplayPrint = 0;
 int counterSend = 0;
 int counterSendMax = 3;
 int counterTallys = 0;
-int counterTallysNew = 0;
 int gpioP1 = 12, gpioP2 = 13, gpioP3 = 14, gpioP4 = 15;
 int gpioV1, gpioV2, gpioV3, gpioV4;
 int gpioV1Map, gpioV2Map, gpioV3Map, gpioV4Map;
@@ -93,6 +93,7 @@ int buf_rssi_cc_int;
 int buf_rssi_dd_int;
 int buf_rssi_ee_int;
 int bL = 0;
+int test;
 float gpioV1Cal, gpioV2Cal, gpioV3Cal, gpioV4Cal;
 double bV = 0;
 
@@ -110,6 +111,7 @@ bool tally_dd_init = LOW;
 bool tally_ee_init = LOW;
 bool initBattery = HIGH;
 bool batteryAttention = LOW;
+bool batteryAttentionState = LOW;
 
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ 22, /* data=*/ 21);   // ESP32 Thing, HW I2C with pin remapping
 
@@ -253,9 +255,11 @@ void sendMessage(String message) {
   LoRa.beginPacket();                   // start packet
   LoRa.write(destination);              // add destination address
   LoRa.write(localAddress);             // add sender address
+  LoRa.write(msgKey1);                  // add message KEY
+  LoRa.write(msgKey2);                  // add message KEY
   LoRa.write(msgCount);                 // add message ID
-  LoRa.write(message.length());        // add payload length
-  LoRa.print(message);                 // add payload
+  LoRa.write(message.length());         // add payload length
+  LoRa.print(message);                  // add payload
   LoRa.endPacket();                     // finish packet and send it
   msgCount++;                           // increment message ID
 }
@@ -265,9 +269,26 @@ void sendMessage(String message) {
 void onReceive(int packetSize, String *ptr_rx_adr, String *ptr_tx_adr, String *ptr_incoming, String *ptr_rssi, String *ptr_snr) {
   if (packetSize == 0) return;          // if there's no packet, return
 
+  //Clear the variables
+  *ptr_rx_adr = "";
+  *ptr_tx_adr = "";
+  *ptr_incoming = "";
+  *ptr_rssi = "";
+  *ptr_snr = "";
+
+  string_destinationAddress = "";
+  rx_adr = "";
+  outgoing = "";
+  tx_adr = "";
+  incoming = "";
+  rssi = "";
+  snr = "";
+
   // read packet header bytes:
   int recipient = LoRa.read();          // recipient address
-  int sender = LoRa.read();             // sender address
+  byte sender = LoRa.read();            // sender address
+  byte incomingMsgKey1 = LoRa.read();   // incoming msg KEY1
+  byte incomingMsgKey2 = LoRa.read();   // incoming msg KEY2
   byte incomingMsgId = LoRa.read();     // incoming msg ID
   byte incomingLength = LoRa.read();    // incoming msg length
 
@@ -275,14 +296,19 @@ void onReceive(int packetSize, String *ptr_rx_adr, String *ptr_tx_adr, String *p
     incoming += (char)LoRa.read();
   }
 
+  if (incomingMsgKey1 != msgKey1 && incomingMsgKey2 != msgKey2) {
+    Serial.println("Error: Message key is false.");
+    return;                             // skip rest of function
+  }
+
   if (incomingLength != incoming.length()) {   // check length for error
-    Serial.println("error: message length does not match length");
+    Serial.println("Error: Message length does not match length.");
     return;                             // skip rest of function
   }
 
   // if the recipient isn't this device or broadcast,
   if (recipient != localAddress && recipient != 0xff) {
-    Serial.println("This message is not for me.");
+    Serial.println("This Message is not for me.");
     return;                             // skip rest of function
   }
 
@@ -352,10 +378,9 @@ void printDisplay() {   //tx Transmit Message,  rx Receive Message,   txAdr Rece
   sprintf(buf_rssi_ee, "%s", rssi_ee);
 
   sprintf(buf_localAddress, "%x", localAddress);          // byte
-  sprintf(buf_mode, "%s", mode_s);                        // string
+  sprintf(buf_mode, "%s", mode_s);                        // string  //%d for int
   sprintf(buf_rxAdr, "%s", string_destinationAddress);            
   sprintf(buf_txAdr, "%s", tx_adr);
-  sprintf(buf_counterTallys, "%d", counterTallys);        // int
 
   buf_rssi_bb_int = atoi(buf_rssi_bb);
   buf_rssi_cc_int = atoi(buf_rssi_cc);
@@ -431,11 +456,11 @@ void printDisplay() {   //tx Transmit Message,  rx Receive Message,   txAdr Rece
 
   //Battery Attention Indicator
   if ((batteryAttention == HIGH)) {
-    batteryAttention = !batteryAttention;
-    if ((batteryAttention = HIGH)) {
+    batteryAttentionState = !batteryAttentionState;
+    if ((batteryAttentionState == HIGH)) {
       u8g2.drawXBM(99, 0, batteryWidth, batteryHeight, battery0);
     }
-    if ((batteryAttention = LOW)) {
+    if ((batteryAttentionState == LOW)) {
       u8g2.drawXBM(99, 0, batteryWidth, batteryHeight, battery1);
     } 
   }
@@ -944,8 +969,8 @@ void loop() {
     
   }
 
-  // Control Mode BB after discover and 3 and 3.5 minutes 
-  if ((millis() - lastDiscoverTimebb > 180000) && ((tally_bb == HIGH) || (tally_bb_init == HIGH))) {
+  // Control Mode BB after discover and 3 - 3.5 minutes 
+  if (((millis() - lastDiscoverTimebb > 180000) && ((tally_bb == HIGH) || (tally_bb_init == HIGH))) || ((millis() - lastDiscoverTimebb > 540000) && ((tally_bb == LOW) || (tally_bb_init == LOW)))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xbb;
     string_destinationAddress = "bb";
@@ -964,7 +989,11 @@ void loop() {
       onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
 
       if ((incoming == "con") && (tx_adr == "bb")) {
+        if (tally_bb_init == LOW) {
+          counterTallys++;
+        }
         tally_bb = HIGH;
+        tally_bb_init = HIGH;
         incoming_bb = incoming;         // reguster values for rssi measuring
         tx_adr_bb = tx_adr;
         rssi_bb = rssi;
@@ -987,8 +1016,8 @@ void loop() {
     }
   }
   
-  // Control Mode CC after discover and 3 minutes 
-  if ((millis() - lastDiscoverTimecc > 190000) && ((tally_cc == HIGH) || (tally_cc_init == HIGH))) {
+  // Control Mode CC after discover and 3 - 3.5 minutes 
+  if (((millis() - lastDiscoverTimecc > 190000) && ((tally_cc == HIGH) || (tally_cc_init == HIGH))) || ((millis() - lastDiscoverTimecc > 570000) && ((tally_cc == LOW) || (tally_cc_init == LOW)))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xcc;
     string_destinationAddress = "cc";
@@ -1007,7 +1036,11 @@ void loop() {
       onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
       
       if ((incoming == "con") && (tx_adr == "cc")) {
+        if (tally_cc_init == LOW) {
+          counterTallys++;
+        }
         tally_cc = HIGH;
+        tally_cc_init = HIGH;
         incoming_cc = incoming;
         tx_adr_cc = tx_adr;
         rssi_cc = rssi;
@@ -1030,8 +1063,8 @@ void loop() {
     }
   }
 
-  // Control Mode DD after discover and 3 minutes 
-  if ((millis() - lastDiscoverTimedd > 200000) && ((tally_dd == HIGH) || (tally_dd_init == HIGH))) {
+  // Control Mode DD after discover and 3 - 3.5 minutes 
+  if (((millis() - lastDiscoverTimedd > 200000) && ((tally_dd == HIGH) || (tally_dd_init == HIGH))) || ((millis() - lastDiscoverTimedd > 600000) && ((tally_dd == LOW) || (tally_dd_init == LOW)))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xdd;
     string_destinationAddress = "dd";
@@ -1050,7 +1083,11 @@ void loop() {
       onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
       
       if ((incoming == "con") && (tx_adr == "dd")) {
+        if (tally_dd_init == LOW) {
+          counterTallys++;
+        }
         tally_dd = HIGH;
+        tally_dd_init = HIGH;
         incoming_dd = incoming;
         tx_adr_dd = tx_adr;
         rssi_dd = rssi;
@@ -1073,8 +1110,8 @@ void loop() {
     }
   }
 
-  // Control Mode EE after discover and 3 minutes 
-  if ((millis() - lastDiscoverTimeee > 210000) && ((tally_ee == HIGH) || (tally_ee_init == HIGH))) {
+  // Control Mode EE after discover and 3 - 3.5 minutes 
+  if (((millis() - lastDiscoverTimeee > 210000) && ((tally_ee == HIGH) || (tally_ee_init == HIGH))) || ((millis() - lastDiscoverTimeee > 630000) && ((tally_ee == LOW) || (tally_ee_init == LOW)))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xee;
     string_destinationAddress = "ee";
@@ -1093,7 +1130,11 @@ void loop() {
       onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
       
       if ((incoming == "con") && (tx_adr == "ee")) {
+        if (tally_ee_init == LOW) {
+          counterTallys++;
+        }
         tally_ee = HIGH;
+        tally_ee_init = HIGH;
         incoming_ee = incoming;
         tx_adr_ee = tx_adr;
         rssi_ee = rssi;
@@ -1118,7 +1159,7 @@ void loop() {
 
   // Function Print Display if nothing work
   if (millis() - lastDisplayPrint > 5000) {
-
+    emptyDisplay();
     printDisplay();
   }
   
