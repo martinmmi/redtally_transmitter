@@ -794,7 +794,7 @@ void loop() {
       break;
     }
 
-    if ((millis() - lastOfferTimeEnd > 120000) && (counterTallys >= 1)) {    // after 60 s of no new receivers, request mode
+    if ((millis() - lastOfferTimeEnd > 120000) && (counterTallys >= 1)) {    // after 120 s of no new receivers, request mode
       mode = "request"; 
       mode_s = "req";
       break;
