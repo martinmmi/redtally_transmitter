@@ -1,6 +1,8 @@
 //////////////////////////////////////////////////////////////////////
 //////////////////// REDTALLY by Martin Mittrenga ////////////////////
 //////////////////////////////////////////////////////////////////////
+/////////////////////////// Transmitter //////////////////////////////
+//////////////////////////////////////////////////////////////////////
 
 #include <Arduino.h>
 #include <U8g2lib.h>
@@ -23,7 +25,8 @@ const int irqPin = 26;         // Change for your board; must be a hardware inte
 
 String mode = "discover";
 String mode_s = "dis";
-String name = "REDTALLY";      // Device Name
+String name = "REDTALLY Transmitter";      // Device Name
+String version = "0.0a";                   // Frimeware Version
 String bb = "bb";
 String cc = "cc";
 String dd = "dd";
@@ -45,7 +48,7 @@ char buf_cc[3];
 char buf_dd[3];
 char buf_ee[3];
 char buf_lost[2];
-char buf_name[9];
+char buf_version[5];
 char buf_localAddress[5];
 char buf_mode[4];
 char buf_rxAdr[5];
@@ -60,13 +63,21 @@ char buf_rssi_cc[4];
 char buf_rssi_dd[4];
 char buf_rssi_ee[4];
 
+///////////////////////////////////////////////
+///////// CHANGE for each Transmitter /////////
+
+byte localAddress = 0xaa;                 // Address of this device  
+String string_localAddress = "aa";                                    
+byte destination = 0xff;                  // Destination to send to              
+String string_destinationAddress = "ff";            
+
+///////////////////////////////////////////////
+///////////////////////////////////////////////
+
 byte msgKey1 = 0x2a;                      // Key of outgoing messages
 byte msgKey2 = 0x56;
 byte msgCount = 0;                        // Count of outgoing messages
-byte localAddress = 0xaa;                 // Address of this device   ///////////////CCCHHHAAANNNGGGEEE////////////// 
-String string_localAddress = "aa";                                    ///////////////CCCHHHAAANNNGGGEEE//////////////                            
-byte destination = 0xff;                  // Destination to send to              
-String string_destinationAddress = "ff";            
+      
 long lastDiscoverTimebb = 0;              // Last send time
 long lastDiscoverTimecc = 0;              // Last send time
 long lastDiscoverTimedd = 0;              // Last send time
@@ -343,7 +354,8 @@ void emptyDisplay() {
 
 void printDisplay() {   //tx Transmit Message,  rx Receive Message,   txAdr Receive Address
 
-  /*Serial.println("");
+  /*
+  Serial.println("");
   Serial.print("Mode: "); Serial.println(mode);
   Serial.print("Voltage: "); Serial.print(bV); Serial.println(" V");
   Serial.print("Voltage Level: "); Serial.print(bL); Serial.println(" %");
@@ -634,6 +646,11 @@ void setup() {
 
   printLoad(1, 60, 4);
 
+  Serial.println("Version: " + version);
+  sprintf(buf_version, "%s", version);
+  u8g2.drawStr(99,60,buf_version);
+  u8g2.sendBuffer();
+
   Serial.println("OLED init succeeded.");
   oledInit = "OLED init";
   sprintf(buf_oledInit, "%s", oledInit);
@@ -677,10 +694,10 @@ void setup() {
   sprintf(buf_outputInit, "%s", outputInit);   
   u8g2.drawStr(0,45,buf_outputInit);
   u8g2.sendBuffer();
-  delay(300);
+  delay(500);
 
   printLora(1);
-  delay(3000);
+  delay(2500);
 
   emptyDisplay();
   printDisplay();
@@ -777,7 +794,7 @@ void loop() {
       break;
     }
 
-    if ((millis() - lastOfferTimeEnd > 60000) && (counterTallys >= 1)) {    // after 60 s of no new receivers, request mode
+    if ((millis() - lastOfferTimeEnd > 120000) && (counterTallys >= 1)) {    // after 60 s of no new receivers, request mode
       mode = "request"; 
       mode_s = "req";
       break;
@@ -969,7 +986,7 @@ void loop() {
     
   }
 
-  // Control Mode BB after discover and 3 - 3.5 minutes 
+  // Control Mode BB after discover and 3 - 3.5 minutes or if BB offline, control after 9 minutes
   if (((millis() - lastDiscoverTimebb > 180000) && ((tally_bb == HIGH) || (tally_bb_init == HIGH))) || ((millis() - lastDiscoverTimebb > 540000) && ((tally_bb == LOW) || (tally_bb_init == LOW)))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xbb;
@@ -1016,7 +1033,7 @@ void loop() {
     }
   }
   
-  // Control Mode CC after discover and 3 - 3.5 minutes 
+  // Control Mode CC after discover and 3 - 3.5 minutes or if BB offline, control after 9.5 minutes
   if (((millis() - lastDiscoverTimecc > 190000) && ((tally_cc == HIGH) || (tally_cc_init == HIGH))) || ((millis() - lastDiscoverTimecc > 570000) && ((tally_cc == LOW) || (tally_cc_init == LOW)))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xcc;
@@ -1063,7 +1080,7 @@ void loop() {
     }
   }
 
-  // Control Mode DD after discover and 3 - 3.5 minutes 
+  // Control Mode DD after discover and 3 - 3.5 minutes or if BB offline, control after 10 minutes
   if (((millis() - lastDiscoverTimedd > 200000) && ((tally_dd == HIGH) || (tally_dd_init == HIGH))) || ((millis() - lastDiscoverTimedd > 600000) && ((tally_dd == LOW) || (tally_dd_init == LOW)))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xdd;
@@ -1110,7 +1127,7 @@ void loop() {
     }
   }
 
-  // Control Mode EE after discover and 3 - 3.5 minutes 
+  // Control Mode EE after discover and 3 - 3.5 minutes or if BB offline, control after 10.5 minutes
   if (((millis() - lastDiscoverTimeee > 210000) && ((tally_ee == HIGH) || (tally_ee_init == HIGH))) || ((millis() - lastDiscoverTimeee > 630000) && ((tally_ee == LOW) || (tally_ee_init == LOW)))) {
     digitalWrite(LED_PIN_INTERNAL, HIGH);
     destination = 0xee;
