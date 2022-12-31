@@ -94,7 +94,7 @@ long lastTestTime = 0;
 long lastDisplayPrint = 0;
 
 int counterSend = 0;
-int counterSendMax = 3;
+int counterSendMax = 2;
 int counterTallys = 0;
 int gpioP1 = 12, gpioP2 = 13, gpioP3 = 14, gpioP4 = 15;
 int gpioV1, gpioV2, gpioV3, gpioV4;
@@ -802,7 +802,7 @@ void loop() {
   }
   
   // Request Mode
-  if ((mode == "request") && (millis() - lastAnalogReadTime > 100)) {
+  if ((mode == "request") && (millis() - lastAnalogReadTime > 250)) {
 
     gpioV1 = analogRead(gpioP1);
     gpioV2 = analogRead(gpioP2);
@@ -960,8 +960,8 @@ void loop() {
       break;
     }
 
-    // Toggel and Resend Message, if ACK not arrived after 2.5 secounds
-    if ((millis() - lastAckTime > 2500) && (counterSend < counterSendMax)) {
+    // Toggel and Resend Message, if ACK not arrived after 2 secounds
+    if ((millis() - lastAckTime > 2000) && (counterSend < counterSendMax)) {
       emptyDisplay();
       mode = "request";
       mode_s = "req";
@@ -975,7 +975,7 @@ void loop() {
     }
 
     // Aborting the routine after 3 failed trys
-    if ((millis() - lastAckTime > 10000) && (counterSend == counterSendMax)) {
+    if ((counterSend == counterSendMax)) {
       emptyDisplay();
       mode = "request";
       mode_s = "req";
