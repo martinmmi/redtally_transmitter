@@ -128,7 +128,7 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* 
 
 #define LED_PIN_INTERNAL    25
 #define ADC_PIN             35
-#define CONV_FACTOR        1.8
+#define CONV_FACTOR        1.7
 #define READS               20
 #define image_width         32
 #define image_height        32
@@ -300,6 +300,9 @@ void onReceive(int packetSize, String *ptr_rx_adr, String *ptr_tx_adr, String *p
   byte sender = LoRa.read();            // sender address
   byte incomingMsgKey1 = LoRa.read();   // incoming msg KEY1
   byte incomingMsgKey2 = LoRa.read();   // incoming msg KEY2
+  byte byte_rssi = LoRa.read();         // incoming byte_rssi
+  //byte byte_snr = LoRa.read();          // incoming byte_snr
+  byte byte_bL = LoRa.read();           // incoming byte_bL
   byte incomingMsgId = LoRa.read();     // incoming msg ID
   byte incomingLength = LoRa.read();    // incoming msg length
 
@@ -326,7 +329,7 @@ void onReceive(int packetSize, String *ptr_rx_adr, String *ptr_tx_adr, String *p
   *ptr_rx_adr = String(recipient, HEX);
   *ptr_tx_adr = String(sender, HEX);
   *ptr_incoming = incoming;
-  *ptr_rssi = String(LoRa.packetRssi());
+  *ptr_rssi = String(byte_rssi - 256);
   *ptr_snr = String(LoRa.packetSnr());
 
   return;
@@ -634,6 +637,8 @@ void setup() {
   u8g2.begin();
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_6x10_tf);
+  u8g2.setContrast(1);                  // value from 1 to 255
+  //u8g2.setFlipMode(1);
 
   //        Color, Delay, Runs
   printLogo(0, 50);
@@ -732,7 +737,7 @@ void loop() {
   // Offer Mode
   while (mode == "offer") {
     onReceive(LoRa.parsePacket(), &rx_adr, &tx_adr, &incoming, &rssi, &snr);    // Parse Packets and Read it
-
+    
     if ((incoming == "off") && (tx_adr == "bb") && (tally_bb == LOW)) {
       tally_bb = HIGH;
       tally_bb_init = HIGH;
@@ -1175,7 +1180,7 @@ void loop() {
   }
 
   // Function Print Display if nothing work
-  if (millis() - lastDisplayPrint > 5000) {
+  if (millis() - lastDisplayPrint > 10000) {
     emptyDisplay();
     printDisplay();
   }
