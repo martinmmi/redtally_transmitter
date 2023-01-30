@@ -640,7 +640,7 @@ void printDisplay() {   //tx Transmit Message,  rx Receive Message,   txAdr Rece
 
 void setup() {
 
-  setCpuFrequencyMhz(80);               // Set CPU Frequenz 240, 160, 80, 40, 20, 10 Mhz
+  //setCpuFrequencyMhz(80);               // Set CPU Frequenz 240, 160, 80, 40, 20, 10 Mhz
   
   cpu_frequency = getCpuFrequencyMhz();
   xtal_frequency = getXtalFrequencyMhz();
