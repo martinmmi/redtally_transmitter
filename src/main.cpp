@@ -82,6 +82,7 @@ String string_destinationAddress = "ff";
 byte msgKey1 = 0x2a;                      // Key of outgoing messages
 byte msgKey2 = 0x56;
 byte msgCount = 0;                        // Count of outgoing messages
+byte esm = 0x00;                          // 0x00 -> OFF  0x01 -> ON
       
 long lastDiscoverTimebb = 0;              // Last send time
 long lastDiscoverTimecc = 0;              // Last send time
@@ -98,6 +99,7 @@ long lastGetBattery = 0;
 long lastTestTime = 0;
 long lastDisplayPrint = 0;
 
+int defaultBrightnessDisplay = 150;   // value from 1 to 255
 int counterSend = 0;
 int counterSendMax = 2;
 int counterTallys = 0;
@@ -133,7 +135,7 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* 
 
 #define LED_PIN_INTERNAL    25
 #define ADC_PIN             35
-#define CONV_FACTOR        1.7
+#define CONV_FACTOR       1.75      //1.7 is fine for the right voltage
 #define READS               20
 #define image_width         32
 #define image_height        32
@@ -273,6 +275,7 @@ void sendMessage(String message) {
   LoRa.write(localAddress);             // add sender address
   LoRa.write(msgKey1);                  // add message KEY
   LoRa.write(msgKey2);                  // add message KEY
+  LoRa.write(esm);                      // add energy save mode
   LoRa.write(msgCount);                 // add message ID
   LoRa.write(message.length());         // add payload length
   LoRa.print(message);                  // add payload
@@ -652,7 +655,7 @@ void setup() {
   u8g2.begin();
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_6x10_tf);
-  u8g2.setContrast(1);                  // value from 1 to 255
+  u8g2.setContrast(defaultBrightnessDisplay);                  
   //u8g2.setFlipMode(1);
 
   //        Color, Delay, Runs
