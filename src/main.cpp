@@ -106,12 +106,10 @@ int counterTallys = 0;
 int gpioP1 = 12, gpioP2 = 13, gpioP3 = 14, gpioP4 = 15;
 int gpioV1, gpioV2, gpioV3, gpioV4;
 int gpioV1Map, gpioV2Map, gpioV3Map, gpioV4Map;
-int buf_rssi_bb_int;
-int buf_rssi_cc_int;
-int buf_rssi_dd_int;
-int buf_rssi_ee_int;
+int missed_bb, missed_cc, missed_dd, missed_ee;
+int buf_rssi_bb_int, buf_rssi_cc_int, buf_rssi_dd_int, buf_rssi_ee_int;
 int bL = 0;
-int test;
+
 float gpioV1Cal, gpioV2Cal, gpioV3Cal, gpioV4Cal;
 double bV = 0;
 
@@ -1037,6 +1035,7 @@ void loop() {
         incoming_bb = incoming;         // reguster values for rssi measuring
         tx_adr_bb = tx_adr;
         rssi_bb = rssi;
+        missed_bb = 0;
         printDisplay();
         mode = "request";
         mode_s = "req";
@@ -1044,9 +1043,14 @@ void loop() {
         break;
       }
 
-      if (millis() - lastControlTime > 2500) {
-        tally_bb = LOW;
-        counterTallys--;
+      if (millis() - lastControlTime > 3000) {
+        missed_bb++;
+        
+        if (missed_bb >= 2) {
+          tally_bb = LOW;
+          counterTallys--;
+        }
+        
         printDisplay();
         mode = "request"; 
         mode_s = "req";
@@ -1084,6 +1088,7 @@ void loop() {
         incoming_cc = incoming;
         tx_adr_cc = tx_adr;
         rssi_cc = rssi;
+        missed_cc = 0;
         printDisplay();
         mode = "request";
         mode_s = "req";
@@ -1091,9 +1096,13 @@ void loop() {
         break;
       }
 
-      if (millis() - lastControlTime > 2500) {
-        tally_cc = LOW;
-        counterTallys--;
+      if (millis() - lastControlTime > 3000) {
+        missed_cc++;
+        
+        if (missed_cc >= 2) {
+          tally_cc = LOW;
+          counterTallys--;
+        }
         printDisplay();
         mode = "request"; 
         mode_s = "req";
@@ -1131,6 +1140,7 @@ void loop() {
         incoming_dd = incoming;
         tx_adr_dd = tx_adr;
         rssi_dd = rssi;
+        missed_dd = 0;
         printDisplay();
         mode = "request";
         mode_s = "req";
@@ -1138,9 +1148,13 @@ void loop() {
         break;
       }
 
-      if (millis() - lastControlTime > 2500) {
-        tally_dd = LOW;
-        counterTallys--;
+      if (millis() - lastControlTime > 3000) {
+        missed_dd++;
+        
+        if (missed_dd >= 2) {
+          tally_dd = LOW;
+          counterTallys--;
+        }
         printDisplay();
         mode = "request"; 
         mode_s = "req";
@@ -1178,6 +1192,7 @@ void loop() {
         incoming_ee = incoming;
         tx_adr_ee = tx_adr;
         rssi_ee = rssi;
+        missed_ee = 0;
         printDisplay();
         mode = "request";
         mode_s = "req";
@@ -1185,10 +1200,14 @@ void loop() {
         break;
       }
 
-      if (millis() - lastControlTime > 2500) {
-        tally_ee = LOW;
+      if (millis() - lastControlTime > 3000) {
+        missed_ee++;
+        
+        if (missed_ee >= 2) {
+          tally_ee = LOW;
+          counterTallys--;
+        }
         printDisplay();
-        counterTallys--;
         mode = "request"; 
         mode_s = "req";
         emptyDisplay();
