@@ -133,7 +133,7 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* 
 
 #define LED_PIN_INTERNAL    25
 #define ADC_PIN             35
-#define CONV_FACTOR       1.75      //1.7 is fine for the right voltage
+#define CONV_FACTOR        1.8      //1.7 is fine for the right voltage
 #define READS               20
 #define image_width         32
 #define image_height        32
