@@ -7,7 +7,6 @@
 #include <Arduino.h>
 #include <U8g2lib.h>
 #include <LoRa.h>
-#include <Adafruit_NeoPixel.h>
 #include <Pangodream_18650_CL.h>
 #include <Preferences.h>                //lib for flashstoreage
 #include "bitmaps.h"
