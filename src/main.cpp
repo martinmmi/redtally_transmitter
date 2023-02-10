@@ -19,10 +19,6 @@
 #include <Wire.h>
 #endif
 
-const int csPin = 18;          // LoRa radio chip select
-const int resetPin = 23;       // LoRa radio reset
-const int irqPin = 26;         // Change for your board; must be a hardware interrupt pin
-
 uint32_t cpu_frequency = 0;
 uint32_t xtal_frequency = 0;
 uint32_t apb_frequency = 0;
@@ -148,6 +144,13 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* 
 #define signalHeight        18
 #define lineWidth            2
 #define lineHeight          10
+
+#define LORA_MISO           19
+#define LORA_MOSI           27
+#define LORA_SCLK            5
+#define LORA_CS             18
+#define LORA_RST            23
+#define LORA_IRQ            26  // Change for your board; must be a hardware interrupt pin
 
 Pangodream_18650_CL BL(ADC_PIN, CONV_FACTOR, READS);
 
@@ -646,6 +649,8 @@ void setup() {
   Serial.begin(115200);                   // initialize serial
   while (!Serial);
 
+  SPI.begin(LORA_SCLK, LORA_MISO, LORA_MOSI, LORA_CS);
+
   Serial.println("");
   Serial.println(name);
 
@@ -679,7 +684,7 @@ void setup() {
   delay(300);
 
   // override the default CS, reset, and IRQ pins (optional)
-  LoRa.setPins(csPin, resetPin, irqPin); // set CS, reset, IRQ pin
+  LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ); // set CS, reset, IRQ pin
   LoRa.setTxPower(17);  //2-20 default 17
   LoRa.setSpreadingFactor(7);    //6-12 default 7
   LoRa.setSignalBandwidth(125E3);   //7.8E3, 10.4E3, 15.6E3, 20.8E3, 31.25E3, 41.7E3, 62.5E3, 125E3, 250E3, and 500E3 default 125E3
