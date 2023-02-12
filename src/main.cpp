@@ -124,13 +124,12 @@ bool initBattery = HIGH;
 bool batteryAttention = LOW;
 bool batteryAttentionState = LOW;
 
-U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ 22, /* data=*/ 21);   // ESP32 Thing, HW I2C with pin remapping
-
-#define LED_PIN_INTERNAL    25
+#define LED_PIN_INTERNAL    25      //Accumulator Function Declaration
 #define ADC_PIN             35
 #define CONV_FACTOR        1.8      //1.7 is fine for the right voltage
 #define READS               20
-#define image_width         32
+
+#define image_width         32      //Bitmap Declaration
 #define image_height        32
 #define loadWidth           50
 #define loadHeight          50
@@ -145,12 +144,17 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* 
 #define lineWidth            2
 #define lineHeight          10
 
-#define LORA_MISO           19
+#define LORA_MISO           19      //Pinout Section
 #define LORA_MOSI           27
 #define LORA_SCLK            5
 #define LORA_CS             18
 #define LORA_RST            23
-#define LORA_IRQ            26  // Change for your board; must be a hardware interrupt pin
+#define LORA_IRQ            26      //Must be a Hardware Interrupt Pin
+
+#define DISPLAY_CLK         22
+#define DISPLAY_DATA        21
+
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ DISPLAY_CLK, /* data=*/ DISPLAY_DATA);   // ESP32 Thing, HW I2C with pin remapping
 
 Pangodream_18650_CL BL(ADC_PIN, CONV_FACTOR, READS);
 
